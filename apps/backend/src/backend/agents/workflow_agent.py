@@ -10,8 +10,28 @@ from ..workflow.executor import WorkflowExecutor
 from ..workflow.schema import Workflow
 from ..workflow.store import WorkflowStore
 from .base import run_agent
-from .test_agent import test_workflow
 from .tools import create_flowforge_mcp_server
+
+MAX_FIX_ATTEMPTS = 2
+
+FIX_SYSTEM_PROMPT = """\
+You are FlowForge, an AI agent that fixes workflow JSON files.
+
+You will be given an execution report showing which workflow nodes failed and why.
+Read the existing workflow.json, diagnose the issue, fix it, and write the corrected file back.
+
+{schema_description}
+
+## Available Tools
+- **search_apis**: Search available service APIs to find correct actions and parameters
+- **search_knowledge_base**: Search the organization's knowledge base for policies and procedures
+
+## Rules
+- Only modify what is necessary to fix the reported failures
+- Use search_apis to verify correct service actions and parameter names
+- Ensure all node dependencies remain valid
+- The edges array must mirror the depends_on relationships
+"""
 
 WORKFLOW_SCHEMA_DESCRIPTION = """\
 The workflow JSON must conform to this schema:
@@ -210,9 +230,8 @@ async def generate_workflow(
         Message dicts with type and content
     """
     workspace = tempfile.mkdtemp(prefix="flowforge-")
-    workflow_path = Path(workspace) / "workflow.py"
+    workflow_file = Path(workspace) / "workflow.json"
 
-    # Create MCP server with team-scoped tools
     mcp_server = create_flowforge_mcp_server(team=team)
 
     if existing_workflow:
@@ -255,92 +274,107 @@ async def generate_workflow(
     ):
         yield message
 
-    workflow_file = Path(workspace) / "workflow.json"
+    if not workflow_file.exists():
+        yield {"type": "error", "content": "Agent did not produce workflow.json"}
+        yield {"type": "workspace", "content": {"path": workspace}}
+        return
 
-    if workflow_path.exists():
-        result = await test_workflow(str(workflow_path))
+    fix_system_prompt = FIX_SYSTEM_PROMPT.format(
+        schema_description=WORKFLOW_SCHEMA_DESCRIPTION,
+    )
 
-        yield {
-            "type": "test_result",
-            "content": {
-                "passed": result.passed,
-                "output": result.output,
-                "error": result.error,
-                "execution_time": result.execution_time,
-            },
-        }
-
-        if not result.passed:
-            yield {
-                "type": "text",
-                "content": "Initial test failed. Running self-correction with error feedback...",
-            }
-
-            fix_prompt = f"The workflow test failed with the following error:\n\n{result.error}\n\nPlease fix the workflow.py code to resolve this error and test it again. You can edit the workflow.py file and re-run it to verify the fix."
-
-            async for message in run_agent(
-                prompt=fix_prompt,
-                system_prompt=system_prompt,
-                workspace_dir=workspace,
-                allowed_tools=["Read", "Write", "Edit", "Bash", "Glob"],
-                max_turns=15,
-            ):
-                yield message
-
-            result = await test_workflow(str(workflow_path))
-
-            yield {
-                "type": "test_result",
-                "content": {
-                    "passed": result.passed,
-                    "output": result.output,
-                    "error": result.error,
-                    "execution_time": result.execution_time,
-                    "is_retry": True,
-                },
-            }
-
-    if workflow_file.exists():
+    report = None
+    for attempt in range(1, MAX_FIX_ATTEMPTS + 2):
         try:
             workflow_data = json.loads(workflow_file.read_text())
             workflow = Workflow.model_validate(workflow_data)
-
-            yield {
-                "type": "workflow",
-                "content": workflow.model_dump(),
-            }
-
-            state, trace, services, failure_config = create_simulator()
-            executor = WorkflowExecutor(
-                state=state,
-                trace=trace,
-                services=services,
-                failure_config=failure_config,
-            )
-            report = await executor.execute(workflow)
-
-            yield {
-                "type": "execution_report",
-                "content": {
-                    "report": report.to_dict(),
-                    "markdown": report.to_markdown(),
-                },
-            }
-
-            if workflow_store and report.failed == 0:
-                workflow_store.save(workflow)
-                yield {
-                    "type": "workflow_saved",
-                    "content": {
-                        "workflow_id": workflow.id,
-                        "team": workflow.team,
-                        "version": workflow.version,
-                    },
-                }
         except Exception as e:
-            yield {"type": "error", "content": f"Failed to parse/execute workflow: {e}"}
+            yield {
+                "type": "error",
+                "content": f"Failed to parse workflow.json (attempt {attempt}): {e}",
+            }
+            if attempt > MAX_FIX_ATTEMPTS:
+                break
 
-    yield {
-        "type": "workspace",
-        "content": {"path": workspace},
-    }
+            async for message in run_agent(
+                prompt=(
+                    f"The workflow.json file at {workflow_file} failed to parse "
+                    f"with the following error:\n\n{e}\n\n"
+                    f"Read the file, fix the JSON, and write it back."
+                ),
+                system_prompt=fix_system_prompt,
+                workspace_dir=workspace,
+                allowed_tools=[
+                    "Read", "Write", "Edit",
+                    "mcp__flowforge__search_apis",
+                    "mcp__flowforge__search_knowledge_base",
+                ],
+                max_turns=10,
+                mcp_servers={"flowforge": mcp_server},
+            ):
+                yield message
+            continue
+
+        yield {"type": "workflow", "content": workflow.model_dump()}
+
+        state, trace, services, failure_config = create_simulator()
+        executor = WorkflowExecutor(
+            state=state,
+            trace=trace,
+            services=services,
+            failure_config=failure_config,
+        )
+        report = await executor.execute(workflow)
+
+        yield {
+            "type": "execution_report",
+            "content": {
+                "report": report.to_dict(),
+                "markdown": report.to_markdown(),
+                "attempt": attempt,
+            },
+        }
+
+        if report.failed == 0:
+            break
+
+        if attempt > MAX_FIX_ATTEMPTS:
+            break
+
+        yield {
+            "type": "text",
+            "content": f"Execution had {report.failed} failure(s). "
+            f"Running self-correction (attempt {attempt}/{MAX_FIX_ATTEMPTS})...",
+        }
+
+        async for message in run_agent(
+            prompt=(
+                f"The workflow at {workflow_file} was executed but had failures.\n\n"
+                f"## Execution Report\n\n{report.to_markdown()}\n\n"
+                f"Read the workflow.json, fix the issues described above, "
+                f"and write the corrected file back."
+            ),
+            system_prompt=fix_system_prompt,
+            workspace_dir=workspace,
+            allowed_tools=[
+                "Read", "Write", "Edit",
+                "mcp__flowforge__search_apis",
+                "mcp__flowforge__search_knowledge_base",
+            ],
+            max_turns=10,
+            mcp_servers={"flowforge": mcp_server},
+        ):
+            yield message
+
+    if workflow_store and report and report.failed == 0:
+        workflow_store.save(workflow)
+        yield {
+            "type": "workflow_saved",
+            "content": {
+                "workflow_id": workflow.id,
+                "team": workflow.team,
+                "version": workflow.version,
+            },
+        }
+
+    yield {"type": "workspace", "content": {"path": workspace}}
