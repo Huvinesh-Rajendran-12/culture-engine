@@ -1,0 +1,10 @@
+{
+  "name": "flow-forge",
+  "private": true,
+  "workspaces": ["apps/frontend"],
+  "scripts": {
+    "dev:frontend": "bun --filter frontend dev",
+    "dev:backend": "cd apps/backend && uv run uvicorn backend.main:app --reload --port 3000",
+    "build:frontend": "bun --filter frontend build"
+  }
+}
