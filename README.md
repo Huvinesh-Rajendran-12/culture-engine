@@ -14,7 +14,7 @@ AI agents that turn natural language ideas into working, executable workflows.
 ### Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
-- Node.js 18+
+- [Bun](https://bun.sh/) (JavaScript runtime & package manager)
 
 ### Backend
 
@@ -29,8 +29,8 @@ uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 
 ```bash
 cd apps/frontend
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 ## Testing
