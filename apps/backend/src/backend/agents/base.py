@@ -54,6 +54,7 @@ async def run_agent(
     allowed_tools: Optional[list[str]] = None,
     max_turns: int = 50,
     mcp_servers: Optional[dict] = None,
+    session_id: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run a Claude Agent SDK agent and yield messages as they arrive.
 
@@ -74,6 +75,7 @@ async def run_agent(
         permission_mode="bypassPermissions",
         cwd=workspace_dir,
         mcp_servers=mcp_servers or {},
+        resume=session_id,
     )
 
     # MCP tools require streaming input mode (async generator)
@@ -116,6 +118,7 @@ async def run_agent(
                         "subtype": message.subtype,
                         "cost_usd": message.total_cost_usd,
                         "usage": message.usage,
+                        "session_id": message.session_id,
                     },
                 }
     except Exception as e:
