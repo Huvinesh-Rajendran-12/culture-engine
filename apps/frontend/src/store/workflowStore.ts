@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { Message } from '../types/api';
-import { WorkflowGraph, WorkflowMetadata } from '../types/workflow';
+import { WorkflowGraph, WorkflowMetadata, ExecutionStatus } from '../types/workflow';
+
+export type AgentPhase = 'idle' | 'searching' | 'building' | 'executing' | 'self_correcting' | 'complete' | 'error';
 
 interface WorkflowState {
   messages: Message[];
@@ -9,12 +11,40 @@ interface WorkflowState {
   workflowMetadata: WorkflowMetadata;
   costUsd: number;
   totalTokens: number;
+  agentPhase: AgentPhase;
+  nodeStatuses: Record<string, ExecutionStatus>;
+  executionReport: Message | null;
+  workflowSaved: { workflow_id: string; team: string; version: number } | null;
 
   // Actions
   addMessage: (message: Message) => void;
   setStreaming: (isStreaming: boolean) => void;
   setWorkflowGraph: (graph: WorkflowGraph, metadata?: Partial<WorkflowMetadata>) => void;
+  setNodeStatuses: (statuses: Record<string, ExecutionStatus> | ((prev: Record<string, ExecutionStatus>) => Record<string, ExecutionStatus>)) => void;
+  setAgentPhase: (phase: AgentPhase) => void;
   reset: () => void;
+}
+
+function detectPhase(message: Message, currentPhase: AgentPhase): AgentPhase {
+  if (message.type === 'error') return 'error';
+  if (message.type === 'workflow_saved') return 'complete';
+  if (message.type === 'execution_report') return 'executing';
+  if (message.type === 'workflow') return 'executing';
+
+  if (message.type === 'text') {
+    const text = message.content.toLowerCase();
+    if (text.includes('self-correction') || text.includes('fix')) return 'self_correcting';
+    if (text.includes('search') || text.includes('knowledge')) return 'searching';
+    if (text.includes('generat') || text.includes('build') || text.includes('creat')) return 'building';
+  }
+
+  if (message.type === 'tool_use') {
+    const tool = message.content.tool.toLowerCase();
+    if (tool.includes('search') || tool.includes('knowledge')) return 'searching';
+    if (tool.includes('write') || tool.includes('edit')) return 'building';
+  }
+
+  return currentPhase === 'idle' ? 'searching' : currentPhase;
 }
 
 const initialState = {
@@ -24,6 +54,10 @@ const initialState = {
   workflowMetadata: { stepCount: 0 },
   costUsd: 0,
   totalTokens: 0,
+  agentPhase: 'idle' as AgentPhase,
+  nodeStatuses: {} as Record<string, ExecutionStatus>,
+  executionReport: null as Message | null,
+  workflowSaved: null as { workflow_id: string; team: string; version: number } | null,
 };
 
 export const useWorkflowStore = create<WorkflowState>((set) => ({
@@ -32,31 +66,41 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   addMessage: (message) =>
     set((state) => {
       const newMessages = [...state.messages, message];
+      const newPhase = detectPhase(message, state.agentPhase);
+      const updates: Partial<WorkflowState> = {
+        messages: newMessages,
+        agentPhase: newPhase,
+      };
 
-      // Update metrics if this is a result message
       if (message.type === 'result') {
-        return {
-          messages: newMessages,
-          costUsd: message.content.cost_usd,
-          totalTokens: message.content.usage.total_tokens,
-        };
+        updates.costUsd = message.content.cost_usd;
+        updates.totalTokens = message.content.usage.total_tokens;
       }
 
-      // Update workspace path if this is a workspace message
       if (message.type === 'workspace') {
-        return {
-          messages: newMessages,
-          workflowMetadata: {
-            ...state.workflowMetadata,
-            path: message.content.path,
-          },
+        updates.workflowMetadata = {
+          ...state.workflowMetadata,
+          path: message.content.path,
         };
       }
 
-      return { messages: newMessages };
+      if (message.type === 'execution_report') {
+        updates.executionReport = message;
+      }
+
+      if (message.type === 'workflow_saved') {
+        updates.workflowSaved = message.content;
+      }
+
+      return updates;
     }),
 
-  setStreaming: (isStreaming) => set({ isStreaming }),
+  setStreaming: (isStreaming) =>
+    set({
+      isStreaming,
+      ...(isStreaming ? { agentPhase: 'searching' as AgentPhase } : {}),
+      ...(!isStreaming ? {} : {}),
+    }),
 
   setWorkflowGraph: (graph, metadata = {}) =>
     set((state) => ({
@@ -68,5 +112,19 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
       },
     })),
 
+  setNodeStatuses: (statuses) =>
+    set((state) => ({
+      nodeStatuses: typeof statuses === 'function' ? statuses(state.nodeStatuses) : statuses,
+    })),
+
+  setAgentPhase: (phase) => set({ agentPhase: phase }),
+
   reset: () => set(initialState),
 }));
+
+// Selectors
+export const selectAgentMessages = (state: WorkflowState) =>
+  state.messages.filter((m) => m.type === 'text' || m.type === 'error');
+
+export const selectToolMessages = (state: WorkflowState) =>
+  state.messages.filter((m) => m.type === 'tool_use');

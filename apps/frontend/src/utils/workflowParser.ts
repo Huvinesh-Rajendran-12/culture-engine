@@ -116,6 +116,9 @@ export function parseWorkflowJSON(workflowData: any): WorkflowGraph {
       data: {
         label: node.name || node.id,
         description: node.description,
+        service: node.service,
+        action: node.action,
+        actor: node.actor,
       },
     };
     nodes.push(actionNode);

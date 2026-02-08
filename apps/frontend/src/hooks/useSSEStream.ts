@@ -72,12 +72,14 @@ export function useSSEStream() {
                 }
 
                 // Handle workflow message type from backend
-                if (message.type === 'workflow') {
-                  const graph = parseWorkflowJSON(message.content);
+                if (data.type === 'workflow') {
+                  const graph = parseWorkflowJSON(data.content);
                   if (graph.nodes.length > 0) {
-                    setWorkflowGraph(graph);
+                    setWorkflowGraph(graph, { workflowName: data.content.name });
                   }
                 }
+
+                // execution_report and workflow_saved are handled by addMessage in the store
               } catch (error) {
                 console.error('Error parsing SSE message:', error, line);
               }
