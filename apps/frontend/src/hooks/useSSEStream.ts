@@ -4,14 +4,16 @@ import { Message } from '../types/api';
 import { extractWorkflowFromToolUse, parseWorkflowCode, parseWorkflowJSON } from '../utils/workflowParser';
 
 export function useSSEStream() {
-  const { addMessage, setStreaming, setWorkflowGraph, reset } = useWorkflowStore();
+  const { addMessage, setStreaming, setWorkflowGraph, setExecutionReport, reset } = useWorkflowStore();
 
   const startStream = useCallback(
     async (description: string) => {
       reset();
       setStreaming(true);
+      console.log('[useSSEStream] Starting stream with description:', description);
 
       try {
+        console.log('[useSSEStream] Fetching /api/workflows/generate');
         const response = await fetch('/api/workflows/generate', {
           method: 'POST',
           headers: {
@@ -20,6 +22,7 @@ export function useSSEStream() {
           body: JSON.stringify({ description }),
         });
 
+        console.log('[useSSEStream] Response status:', response.status, response.ok);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -50,6 +53,7 @@ export function useSSEStream() {
             if (line.startsWith('data: ')) {
               try {
                 const data = JSON.parse(line.slice(6));
+                console.log('[useSSEStream] Received message:', data.type, data);
 
                 const message: Message = {
                   id: crypto.randomUUID(),
@@ -58,6 +62,7 @@ export function useSSEStream() {
                   content: data.content,
                 } as Message;
 
+                console.log('[useSSEStream] Adding message to store:', message);
                 addMessage(message);
 
                 // Check if this is a workflow.py write operation
@@ -73,10 +78,22 @@ export function useSSEStream() {
 
                 // Handle workflow message type from backend
                 if (message.type === 'workflow') {
-                  const graph = parseWorkflowJSON(message.content);
+                  // message.content has shape { workflow: {...} }
+                  const workflowData = (message.content as any).workflow;
+                  console.log('[useSSEStream] Received workflow data:', workflowData);
+                  const graph = parseWorkflowJSON(workflowData);
+                  console.log('[useSSEStream] Parsed workflow graph:', graph);
                   if (graph.nodes.length > 0) {
                     setWorkflowGraph(graph);
+                    console.log('[useSSEStream] Workflow graph set with', graph.nodes.length, 'nodes');
                   }
+                }
+
+                // Handle execution_report message type
+                if (message.type === 'execution_report') {
+                  const report = (message.content as any).report;
+                  console.log('[useSSEStream] Received execution report:', report);
+                  setExecutionReport(report);
                 }
               } catch (error) {
                 console.error('Error parsing SSE message:', error, line);
@@ -85,6 +102,7 @@ export function useSSEStream() {
           }
         }
       } catch (error) {
+        console.error('[useSSEStream] Error during stream:', error);
         const errorMessage: Message = {
           id: crypto.randomUUID(),
           timestamp: Date.now(),
@@ -93,10 +111,11 @@ export function useSSEStream() {
         };
         addMessage(errorMessage);
       } finally {
+        console.log('[useSSEStream] Stream ended, setting streaming to false');
         setStreaming(false);
       }
     },
-    [addMessage, setStreaming, setWorkflowGraph, reset]
+    [addMessage, setStreaming, setWorkflowGraph, setExecutionReport, reset]
   );
 
   return { startStream };

@@ -1,4 +1,5 @@
 import { Node, Edge } from 'reactflow';
+import { ExecutionStatus } from './execution';
 
 export type NodeType = 'start' | 'action' | 'end';
 
@@ -7,6 +8,8 @@ export interface WorkflowNode extends Node {
   data: {
     label: string;
     description?: string;
+    service?: string;
+    executionState?: ExecutionStatus;
   };
 }
 

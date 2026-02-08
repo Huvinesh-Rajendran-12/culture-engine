@@ -1,20 +1,20 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import ReactFlow, {
   Background,
   Controls,
   MiniMap,
   useNodesState,
   useEdgesState,
-  Panel,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { CustomNode } from './CustomNode';
-import { WorkflowGraph as WorkflowGraphType } from '../../types/workflow';
+import { ServiceNode } from './ServiceNode';
+import { WorkflowGraph as WorkflowGraphType, WorkflowNode } from '../../types/workflow';
+import { useWorkflowStore } from '../../store/workflowStore';
 
 const nodeTypes = {
-  start: CustomNode,
-  action: CustomNode,
-  end: CustomNode,
+  start: ServiceNode,
+  action: ServiceNode,
+  end: ServiceNode,
 };
 
 interface WorkflowGraphProps {
@@ -22,15 +22,40 @@ interface WorkflowGraphProps {
 }
 
 export function WorkflowGraph({ graph }: WorkflowGraphProps) {
-  const [nodes, , onNodesChange] = useNodesState(graph.nodes);
+  const { nodeExecutionState, selectNode } = useWorkflowStore();
+
+  // Enrich nodes with execution state
+  const enrichedNodes = useMemo(() => {
+    return graph.nodes.map((node) => {
+      const executionState = nodeExecutionState.get(node.id);
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          executionState: executionState?.status,
+        },
+      } as WorkflowNode;
+    });
+  }, [graph.nodes, nodeExecutionState]);
+
+  const [nodes, , onNodesChange] = useNodesState(enrichedNodes);
   const [edges, , onEdgesChange] = useEdgesState(graph.edges);
 
   const onInit = useCallback((reactFlowInstance: any) => {
     reactFlowInstance.fitView({ padding: 0.2 });
   }, []);
 
+  const onNodeClick = useCallback(
+    (_event: React.MouseEvent, node: any) => {
+      if (node.id !== 'start' && node.id !== 'end') {
+        selectNode(node.id);
+      }
+    },
+    [selectNode]
+  );
+
   return (
-    <div className="h-full w-full">
+    <div className="h-full w-full bg-terminal-bg">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -38,30 +63,34 @@ export function WorkflowGraph({ graph }: WorkflowGraphProps) {
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         onInit={onInit}
+        onNodeClick={onNodeClick}
         fitView
         attributionPosition="bottom-left"
       >
-        <Background />
+        <Background color="#15803d" gap={16} />
         <Controls />
         <MiniMap
           nodeColor={(node) => {
+            const workflowNode = node as WorkflowNode;
+            const executionState = workflowNode.data.executionState;
+
+            if (executionState === 'success') return '#22c55e';
+            if (executionState === 'failed') return '#ef4444';
+            if (executionState === 'running') return '#eab308';
+            if (executionState === 'skipped') return '#9ca3af';
+
             switch (node.type) {
               case 'start':
-                return '#86efac';
+                return '#10b981';
               case 'end':
-                return '#fca5a5';
+                return '#10b981';
               case 'action':
-                return '#93c5fd';
+                return '#15803d';
               default:
-                return '#e5e7eb';
+                return '#047857';
             }
           }}
         />
-        <Panel position="top-right" className="bg-white p-3 rounded-lg shadow-md border border-gray-200">
-          <div className="text-sm font-medium text-gray-900">
-            {graph.nodes.filter((n) => n.type === 'action').length} Steps
-          </div>
-        </Panel>
       </ReactFlow>
     </div>
   );

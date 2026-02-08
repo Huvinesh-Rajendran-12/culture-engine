@@ -1,5 +1,51 @@
 import { WorkflowGraph, WorkflowNode } from '../types/workflow';
 import { Edge } from 'reactflow';
+import dagre from 'dagre';
+
+const NODE_WIDTH = 200;
+const NODE_HEIGHT = 80;
+
+function getLayoutedElements(
+  nodes: WorkflowNode[],
+  edges: Edge[]
+): { nodes: WorkflowNode[]; edges: Edge[] } {
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+  // Configure layout
+  dagreGraph.setGraph({
+    rankdir: 'TB', // Top to bottom
+    nodesep: 80, // Horizontal spacing between nodes
+    ranksep: 100, // Vertical spacing between ranks
+  });
+
+  // Add nodes to dagre graph
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+  });
+
+  // Add edges to dagre graph
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  // Calculate layout
+  dagre.layout(dagreGraph);
+
+  // Apply calculated positions to nodes
+  const layoutedNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - NODE_WIDTH / 2,
+        y: nodeWithPosition.y - NODE_HEIGHT / 2,
+      },
+    };
+  });
+
+  return { nodes: layoutedNodes, edges };
+}
 
 export function parseWorkflowCode(code: string): WorkflowGraph {
   const nodes: WorkflowNode[] = [];
@@ -29,7 +75,7 @@ export function parseWorkflowCode(code: string): WorkflowGraph {
   const startNode: WorkflowNode = {
     id: 'start',
     type: 'start',
-    position: { x: 250, y: 50 },
+    position: { x: 0, y: 0 }, // Will be positioned by dagre
     data: { label: 'Start' },
   };
   nodes.push(startNode);
@@ -40,7 +86,7 @@ export function parseWorkflowCode(code: string): WorkflowGraph {
     const node: WorkflowNode = {
       id: nodeId,
       type: 'action',
-      position: { x: 250, y: 150 + index * 120 },
+      position: { x: 0, y: 0 }, // Will be positioned by dagre
       data: {
         label: func.name.replace(/_/g, ' '),
         description: func.description,
@@ -62,7 +108,7 @@ export function parseWorkflowCode(code: string): WorkflowGraph {
   const endNode: WorkflowNode = {
     id: 'end',
     type: 'end',
-    position: { x: 250, y: 150 + functions.length * 120 },
+    position: { x: 0, y: 0 }, // Will be positioned by dagre
     data: { label: 'End' },
   };
   nodes.push(endNode);
@@ -75,7 +121,7 @@ export function parseWorkflowCode(code: string): WorkflowGraph {
     type: 'smoothstep',
   });
 
-  return { nodes, edges };
+  return getLayoutedElements(nodes, edges);
 }
 
 export function extractWorkflowFromToolUse(toolInput: Record<string, unknown>): string | null {
@@ -102,20 +148,21 @@ export function parseWorkflowJSON(workflowData: any): WorkflowGraph {
   const startNode: WorkflowNode = {
     id: 'start',
     type: 'start',
-    position: { x: 250, y: 50 },
+    position: { x: 0, y: 0 }, // Will be positioned by dagre
     data: { label: 'Start' },
   };
   nodes.push(startNode);
 
   // Create action nodes from workflow nodes
-  workflowData.nodes.forEach((node: any, index: number) => {
+  workflowData.nodes.forEach((node: any) => {
     const actionNode: WorkflowNode = {
       id: node.id,
       type: 'action',
-      position: { x: 250, y: 150 + index * 120 },
+      position: { x: 0, y: 0 }, // Will be positioned by dagre
       data: {
         label: node.name || node.id,
         description: node.description,
+        service: node.service, // Include service for coloring
       },
     };
     nodes.push(actionNode);
@@ -125,7 +172,7 @@ export function parseWorkflowJSON(workflowData: any): WorkflowGraph {
   const endNode: WorkflowNode = {
     id: 'end',
     type: 'end',
-    position: { x: 250, y: 150 + workflowData.nodes.length * 120 },
+    position: { x: 0, y: 0 }, // Will be positioned by dagre
     data: { label: 'End' },
   };
   nodes.push(endNode);
@@ -192,5 +239,5 @@ export function parseWorkflowJSON(workflowData: any): WorkflowGraph {
     });
   }
 
-  return { nodes, edges };
+  return getLayoutedElements(nodes, edges);
 }

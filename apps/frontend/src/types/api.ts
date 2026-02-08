@@ -1,4 +1,4 @@
-export type MessageType = 'text' | 'tool_use' | 'result' | 'error' | 'workspace';
+export type MessageType = 'text' | 'tool_use' | 'result' | 'error' | 'workspace' | 'workflow' | 'execution_report';
 
 export interface BaseMessage {
   id: string;
@@ -43,12 +43,28 @@ export interface WorkspaceMessage extends BaseMessage {
   };
 }
 
+export interface WorkflowMessage extends BaseMessage {
+  type: 'workflow';
+  content: {
+    workflow: unknown;
+  };
+}
+
+export interface ExecutionReportMessage extends BaseMessage {
+  type: 'execution_report';
+  content: {
+    report: import('./execution').ExecutionReport;
+  };
+}
+
 export type Message =
   | TextMessage
   | ToolUseMessage
   | ResultMessage
   | ErrorMessage
-  | WorkspaceMessage;
+  | WorkspaceMessage
+  | WorkflowMessage
+  | ExecutionReportMessage;
 
 export interface GenerateWorkflowRequest {
   description: string;

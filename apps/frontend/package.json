@@ -8,7 +8,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@types/dagre": "^0.7.53",
     "clsx": "^2.1.1",
+    "dagre": "^0.8.5",
     "lucide-react": "^0.563.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
