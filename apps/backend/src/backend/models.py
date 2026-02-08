@@ -22,6 +22,10 @@ class WorkflowRequest(BaseModel):
         None,
         description="If provided, modify this existing workflow instead of creating new",
     )
+    session_id: Optional[str] = Field(
+        None,
+        description="If provided, resume an existing agent session for multi-turn refinement",
+    )
 
 
 class StreamMessage(BaseModel):
