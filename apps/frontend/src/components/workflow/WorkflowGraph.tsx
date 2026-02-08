@@ -5,7 +5,6 @@ import ReactFlow, {
   MiniMap,
   useNodesState,
   useEdgesState,
-  Panel,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { CustomNode } from './CustomNode';
@@ -39,29 +38,21 @@ export function WorkflowGraph({ graph }: WorkflowGraphProps) {
         nodeTypes={nodeTypes}
         onInit={onInit}
         fitView
-        attributionPosition="bottom-left"
       >
-        <Background />
+        <Background color="#1a3a1a" gap={20} size={1} />
         <Controls />
         <MiniMap
           nodeColor={(node) => {
-            switch (node.type) {
-              case 'start':
-                return '#86efac';
-              case 'end':
-                return '#fca5a5';
-              case 'action':
-                return '#93c5fd';
-              default:
-                return '#e5e7eb';
-            }
+            const service = node.data?.service;
+            if (service === 'slack') return '#E01E5A';
+            if (service === 'jira') return '#0052CC';
+            if (service === 'google') return '#4285F4';
+            if (service === 'hr') return '#8B5CF6';
+            if (service === 'github') return '#F0883E';
+            if (node.type === 'start' || node.type === 'end') return '#166534';
+            return '#4ade80';
           }}
         />
-        <Panel position="top-right" className="bg-white p-3 rounded-lg shadow-md border border-gray-200">
-          <div className="text-sm font-medium text-gray-900">
-            {graph.nodes.filter((n) => n.type === 'action').length} Steps
-          </div>
-        </Panel>
       </ReactFlow>
     </div>
   );
