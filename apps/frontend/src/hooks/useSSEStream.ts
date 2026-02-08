@@ -1,15 +1,36 @@
 import { useCallback } from 'react';
 import { useWorkflowStore } from '../store/workflowStore';
-import { Message } from '../types/api';
+import { Message, UserMessage } from '../types/api';
 import { extractWorkflowFromToolUse, parseWorkflowCode, parseWorkflowJSON } from '../utils/workflowParser';
 
 export function useSSEStream() {
-  const { addMessage, setStreaming, setWorkflowGraph, reset } = useWorkflowStore();
+  const { addMessage, setStreaming, setWorkflowGraph, reset, softReset } = useWorkflowStore();
 
   const startStream = useCallback(
     async (description: string) => {
-      reset();
+      const { sessionId, currentWorkflowId } = useWorkflowStore.getState();
+
+      if (sessionId) {
+        // Follow-up turn: preserve conversation history
+        softReset();
+        // Inject a user message into the stream for display
+        const userMessage: UserMessage = {
+          id: crypto.randomUUID(),
+          timestamp: Date.now(),
+          type: 'user_message',
+          content: description,
+        };
+        addMessage(userMessage);
+      } else {
+        // First message: full reset
+        reset();
+      }
+
       setStreaming(true);
+
+      const body: Record<string, string> = { description };
+      if (sessionId) body.session_id = sessionId;
+      if (currentWorkflowId) body.workflow_id = currentWorkflowId;
 
       try {
         const response = await fetch('/api/workflows/generate', {
@@ -17,7 +38,7 @@ export function useSSEStream() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ description }),
+          body: JSON.stringify(body),
         });
 
         if (!response.ok) {
@@ -116,7 +137,7 @@ export function useSSEStream() {
         setStreaming(false);
       }
     },
-    [addMessage, setStreaming, setWorkflowGraph, reset]
+    [addMessage, setStreaming, setWorkflowGraph, reset, softReset]
   );
 
   return { startStream };
