@@ -60,13 +60,31 @@ export function useSSEStream() {
 
                 addMessage(message);
 
-                // Check if this is a workflow.py write operation
+                // Check if this is a workflow file write operation
                 if (message.type === 'tool_use') {
-                  const workflowCode = extractWorkflowFromToolUse(message.content.input);
-                  if (workflowCode) {
-                    const graph = parseWorkflowCode(workflowCode);
-                    if (graph.nodes.length > 0) {
-                      setWorkflowGraph(graph);
+                  const toolInput = message.content.input;
+                  const filePath = toolInput.file_path as string;
+
+                  if (filePath?.endsWith('workflow.json')) {
+                    const content = (toolInput.content || toolInput.file_contents) as string;
+                    if (content) {
+                      try {
+                        const parsed = JSON.parse(content);
+                        const graph = parseWorkflowJSON(parsed);
+                        if (graph.nodes.length > 0) {
+                          setWorkflowGraph(graph, { workflowName: parsed.name });
+                        }
+                      } catch {
+                        // JSON not valid yet, skip early preview
+                      }
+                    }
+                  } else {
+                    const workflowCode = extractWorkflowFromToolUse(toolInput);
+                    if (workflowCode) {
+                      const graph = parseWorkflowCode(workflowCode);
+                      if (graph.nodes.length > 0) {
+                        setWorkflowGraph(graph);
+                      }
                     }
                   }
                 }

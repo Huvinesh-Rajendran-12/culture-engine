@@ -79,7 +79,7 @@ export function parseWorkflowCode(code: string): WorkflowGraph {
 }
 
 export function extractWorkflowFromToolUse(toolInput: Record<string, unknown>): string | null {
-  // Check if this is a Write tool call for workflow.py
+  // Check if this is a Write tool call for workflow.py (workflow.json is handled separately in useSSEStream)
   const filePath = toolInput.file_path as string;
   if (!filePath?.endsWith('workflow.py')) {
     return null;
