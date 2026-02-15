@@ -1,124 +1,107 @@
-# FlowForge Backend - Quick Start Guide
+# FlowForge Backend Quickstart
 
-## Setup
-
-### 1. Get an Anthropic API Key
-
-Obtain your API key from: https://console.anthropic.com/
-
-### 2. Configure Environment
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and set your API key:
-
-```
-ANTHROPIC_API_KEY=your_actual_api_key_here
-```
-
-### 3. Start the Server
+## 1) Install + Configure
 
 ```bash
 uv sync
+cp .env.example .env
+```
+
+Edit `.env` with one key option:
+
+```bash
+# Option A: OpenRouter (Anthropic-compatible)
+OPENROUTER_API_KEY=your_key
+ANTHROPIC_BASE_URL=https://openrouter.ai/api
+
+# Option B: Direct Anthropic
+# ANTHROPIC_API_KEY=your_key
+```
+
+Optional:
+
+```bash
+DEFAULT_MODEL=haiku
+```
+
+---
+
+## 2) Start Backend
+
+```bash
 uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The server will start at `http://localhost:8000`.
+Open docs:
+- Swagger: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
 
-## API Documentation
+---
 
-Once the server is running:
+## 3) Quick API Smoke Test
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-## Test the API
-
-### Health Check
+### Health
 
 ```bash
 curl http://localhost:8000/api/health
 ```
 
-### Generate a Workflow (SSE stream)
+### Generate workflow (SSE)
 
 ```bash
 curl -N -X POST http://localhost:8000/api/workflows/generate \
   -H "Content-Type: application/json" \
   -d '{
-    "description": "Onboard a new employee named Jane Doe to the Engineering team",
+    "description": "Create an onboarding workflow for a new engineering hire",
     "context": {
-      "department": "Engineering",
-      "manager": "John Smith",
-      "start_date": "2026-03-01"
-    }
+      "employee_name": "Jane Doe",
+      "role": "Software Engineer",
+      "department": "Engineering"
+    },
+    "team": "default"
   }'
 ```
 
-The response is a Server-Sent Events stream. Each event contains a JSON object with `type` and `content` fields:
+You will receive streamed events such as:
+- `text`
+- `tool_use`
+- `tool_result`
+- `workflow`
+- `execution_report`
+- `result`
+- `error`
+- `workspace`
 
-- `text` — Agent reasoning and explanations
-- `tool_use` — Tools being invoked (Write, Bash, Read, etc.)
-- `result` — Final result with cost and usage data
-- `error` — Any errors encountered
+---
 
-## Architecture
+## 4) Interactive CLI Example
 
-```
-User Input (Natural Language)
-    |
-    v
-Knowledge Base Discovery (Read org systems, roles, policies)
-    |
-    v
-Workflow Design (Structured plan with steps and dependencies)
-    |
-    v
-Code Generation (Executable Python workflow)
-    |
-    v
-Automated Testing (Run, validate, fix, re-run)
-    |
-    v
-Final Output (Working workflow + summary)
-```
-
-## Configuration
-
-Edit `.env` to customize:
+From `apps/backend`:
 
 ```bash
-# Required
-ANTHROPIC_API_KEY=your_key_here
-
-# Optional
-DEFAULT_MODEL=sonnet
+OPENROUTER_API_KEY=... ANTHROPIC_BASE_URL=https://openrouter.ai/api \
+uv run python examples/interactive_workflow_generator.py
 ```
 
-## Troubleshooting
+---
 
-**Import errors:**
+## 5) Mental Model
 
-```bash
-uv sync
-```
+FlowForge uses a **unified agent** that can:
+1. understand request/context,
+2. write/modify `workflow.json`,
+3. validate against schema,
+4. execute in simulator,
+5. self-correct on failures.
 
-**API key not working:**
+Default tools are intentionally minimal and composable:
+- `read_file`, `write_file`, `edit_file`, `search_apis`, `search_knowledge_base`
 
-- Verify `.env` exists and contains your key
-- Ensure the key has no surrounding quotes
-- Confirm the key is valid at https://console.anthropic.com/
+---
 
-**Port already in use:**
+## 6) Troubleshooting
 
-```bash
-uv run uvicorn backend.main:app --reload --port 8001
-```
-
-## References
-
-- [pi-agent-core (Python) README](https://pypi.org/project/pi-agent-core/)
-- [Anthropic API Documentation](https://docs.anthropic.com/)
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
+- **Auth errors**: verify `.env` keys and endpoint settings
+- **No workflow produced**: inspect streamed `error` + `tool_result` events
+- **Port conflict**: run with `--port 8001`
+- **Dependency issues**: rerun `uv sync`

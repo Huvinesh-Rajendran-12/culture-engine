@@ -1,119 +1,132 @@
 # FlowForge Backend
 
-FastAPI backend powered by pi-agent-core + Anthropic streaming. It takes a natural language description of a workflow, designs it, writes executable Python code, runs it, self-corrects on failure, and returns working automation -- all streamed over SSE.
+FastAPI backend for FlowForge's unified workflow agent.
 
-## Prerequisites
+The agent can:
+- chat and clarify requirements,
+- generate or modify `workflow.json`,
+- validate and execute workflows in a simulator,
+- self-correct when parsing/execution fails,
+- stream progress via Server-Sent Events (SSE).
 
-- Python 3.10+
-- [uv](https://github.com/astral-sh/uv) package manager
-- Anthropic API key
+## Tech Stack
+
+- Python 3.13
+- FastAPI
+- pi-agent-core
+- Anthropic/OpenRouter (Anthropic-compatible API)
 
 ## Setup
 
-1. Install dependencies:
-
 ```bash
 uv sync
-```
-
-2. Create a `.env` file from the example:
-
-```bash
 cp .env.example .env
 ```
 
-3. Add your Anthropic API key to `.env`:
+Set one of these auth options in `.env`:
 
-```
-ANTHROPIC_API_KEY=your_api_key_here
-```
+- `OPENROUTER_API_KEY=...` (recommended)
+- or `ANTHROPIC_API_KEY=...`
 
-## Running the Server
+Optional:
+
+- `ANTHROPIC_BASE_URL=https://openrouter.ai/api`
+- `ANTHROPIC_AUTH_TOKEN=...`
+- `DEFAULT_MODEL=haiku`
+
+## Run API
 
 ```bash
 uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The API will be available at `http://localhost:8000`.
+- API: `http://localhost:8000`
+- Swagger: `http://localhost:8000/docs`
 
-Swagger UI docs are at `http://localhost:8000/docs`.
+## Endpoints
 
-## API
+### `GET /api/health`
+Health check.
 
-### Health Check
+### `POST /api/workflows/generate`
+Generate or modify a workflow from natural language.
 
-```http
-GET /api/health
-```
+Request body:
 
-### Generate Workflow
-
-```http
-POST /api/workflows/generate
-Content-Type: application/json
-
+```json
 {
-  "description": "Create an employee onboarding workflow that sends welcome emails, creates accounts, and assigns training tasks",
+  "description": "Create an onboarding workflow for engineering hires",
   "context": {
-    "company": "TechCorp",
-    "systems": ["Slack", "JIRA", "HR Portal"]
-  }
+    "department": "Engineering",
+    "manager": "Jane Doe"
+  },
+  "team": "default",
+  "workflow_id": null
 }
 ```
 
-The response is an SSE stream. Each event is a JSON object representing a step in the agent's process (discovery, design, code generation, execution results, error correction, final report).
+Response is an SSE stream of JSON events.
+Common event types:
+- `text`
+- `tool_use`
+- `tool_result`
+- `workflow`
+- `execution_report`
+- `workflow_saved`
+- `result`
+- `error`
+- `workspace`
 
-## Architecture
+### Workflow storage endpoints
 
-The agent follows a five-phase pipeline:
+- `GET /api/workflows?team=default`
+- `GET /api/workflows/{workflow_id}?team=default`
+- `DELETE /api/workflows/{workflow_id}?team=default`
 
-1. **Discover** -- Reads the knowledge base (`kb/` directory) to understand organizational context: systems, roles, policies.
-2. **Design** -- Produces a structured workflow specification from the user's description and the discovered context.
-3. **Build** -- Writes executable Python code that implements the workflow.
-4. **Test** -- Runs the generated code, captures output and errors.
-5. **Report** -- If execution fails, the agent self-corrects and retries. On success, it returns the working code and a summary.
+## Agent Architecture (Current)
 
-All phases stream progress to the client as SSE events.
+Core files:
 
-## Project Structure
+- `src/backend/agents/workflow_agent.py`
+  - unified agent orchestration for generate/modify/fix
+- `src/backend/agents/base.py`
+  - pi-agent-core runner + SSE event translation
+- `src/backend/agents/tools.py`
+  - tool definitions and execution
+- `src/backend/workflow/`
+  - schema, executor, report, and file store
+- `src/backend/simulator/`
+  - simulated services and failure injection
 
-```
-apps/backend/
-├── src/backend/
-│   ├── __init__.py
-│   ├── main.py                # FastAPI app and endpoints
-│   ├── config.py              # Configuration management
-│   ├── models.py              # Pydantic models for API
-│   └── agents/
-│       ├── __init__.py
-│       ├── base.py            # pi-agent-core runner wrapper
-│       └── workflow_agent.py  # Workflow generation agent
-├── kb/                        # Knowledge base (org context)
-│   ├── onboarding_policy.md
-│   ├── roles.md
-│   └── systems.md
-├── examples/
-│   └── workflow_example.py    # Example client usage
-├── .env.example
-├── pyproject.toml
-└── README.md
-```
+## Minimal Toolset Philosophy
 
-## Configuration
+FlowForge intentionally uses a small composable default toolset:
 
-Environment variables (set in `.env`):
+- `read_file`
+- `write_file`
+- `edit_file`
+- `search_apis`
+- `search_knowledge_base`
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `ANTHROPIC_API_KEY` | Yes | -- | Your Anthropic API key |
-| `DEFAULT_MODEL` | No | `sonnet` | Claude model to use |
+Source of truth: `src/backend/agents/tools.py` (`DEFAULT_TOOL_NAMES`).
 
-## Running Tests
+## Examples
+
+- `examples/workflow_example.py` — SSE client call to backend endpoint
+- `examples/interactive_workflow_generator.py` — interactive CLI using pi-agent-core style
+
+## Tests
+
+Current tests include both legacy and newer suites:
+
+- `test_workflow_agent.py`
+- `test_workflow_e2e.py`
+- `tests/test_workflow_engine_core.py`
+- `tests/test_workflow_generation.py`
+- `tests/test_integration_openrouter.py`
+
+Run (if test deps are installed):
 
 ```bash
 uv run pytest
 ```
-
-## License
-
-MIT
