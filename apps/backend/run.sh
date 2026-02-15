@@ -20,7 +20,7 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-# Export all env vars so the Claude Agent SDK CLI subprocess can access them
+# Export all env vars so the backend and model adapter can access them
 set -a
 source .env
 set +a

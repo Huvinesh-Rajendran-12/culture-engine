@@ -119,6 +119,6 @@ uv run uvicorn backend.main:app --reload --port 8001
 
 ## References
 
-- [Claude Agent SDK Documentation](https://platform.claude.com/docs/en/agent-sdk/overview)
+- [pi-agent-core (Python) README](https://pypi.org/project/pi-agent-core/)
 - [Anthropic API Documentation](https://docs.anthropic.com/)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)

@@ -1,6 +1,6 @@
 # FlowForge Backend
 
-FastAPI backend powered by the Claude Agent SDK. It takes a natural language description of a workflow, designs it, writes executable Python code, runs it, self-corrects on failure, and returns working automation -- all streamed over SSE.
+FastAPI backend powered by pi-agent-core + Anthropic streaming. It takes a natural language description of a workflow, designs it, writes executable Python code, runs it, self-corrects on failure, and returns working automation -- all streamed over SSE.
 
 ## Prerequisites
 
@@ -86,7 +86,7 @@ apps/backend/
 │   ├── models.py              # Pydantic models for API
 │   └── agents/
 │       ├── __init__.py
-│       ├── base.py            # Claude Agent SDK wrapper
+│       ├── base.py            # pi-agent-core runner wrapper
 │       └── workflow_agent.py  # Workflow generation agent
 ├── kb/                        # Knowledge base (org context)
 │   ├── onboarding_policy.md
