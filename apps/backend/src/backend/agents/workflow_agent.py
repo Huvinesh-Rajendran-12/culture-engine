@@ -1,4 +1,4 @@
-"""Workflow agent that designs structured DAG workflows using Claude Agent SDK."""
+"""Workflow agent that designs structured DAG workflows using pi-agent-core."""
 
 import json
 import tempfile
@@ -10,7 +10,7 @@ from ..workflow.executor import WorkflowExecutor
 from ..workflow.schema import Workflow
 from ..workflow.store import WorkflowStore
 from .base import run_agent
-from .tools import create_flowforge_mcp_server
+
 
 MAX_FIX_ATTEMPTS = 2
 
@@ -232,8 +232,6 @@ async def generate_workflow(
     workspace = tempfile.mkdtemp(prefix="flowforge-")
     workflow_file = Path(workspace) / "workflow.json"
 
-    mcp_server = create_flowforge_mcp_server(team=team)
-
     if existing_workflow:
         system_prompt = MODIFY_SYSTEM_PROMPT.format(
             existing_workflow_json=existing_workflow.model_dump_json(indent=2),
@@ -264,13 +262,13 @@ async def generate_workflow(
         prompt=prompt,
         system_prompt=system_prompt,
         workspace_dir=workspace,
+        team=team,
         allowed_tools=[
             "Read", "Write", "Edit", "Bash", "Glob",
-            "mcp__flowforge__search_apis",
-            "mcp__flowforge__search_knowledge_base",
+            "search_apis",
+            "search_knowledge_base",
         ],
         max_turns=30,
-        mcp_servers={"flowforge": mcp_server},
     ):
         yield message
 
@@ -304,13 +302,13 @@ async def generate_workflow(
                 ),
                 system_prompt=fix_system_prompt,
                 workspace_dir=workspace,
+                team=team,
                 allowed_tools=[
                     "Read", "Write", "Edit",
-                    "mcp__flowforge__search_apis",
-                    "mcp__flowforge__search_knowledge_base",
+                    "search_apis",
+                    "search_knowledge_base",
                 ],
                 max_turns=10,
-                mcp_servers={"flowforge": mcp_server},
             ):
                 yield message
             continue
@@ -356,13 +354,13 @@ async def generate_workflow(
             ),
             system_prompt=fix_system_prompt,
             workspace_dir=workspace,
+            team=team,
             allowed_tools=[
                 "Read", "Write", "Edit",
-                "mcp__flowforge__search_apis",
-                "mcp__flowforge__search_knowledge_base",
+                "search_apis",
+                "search_knowledge_base",
             ],
             max_turns=10,
-            mcp_servers={"flowforge": mcp_server},
         ):
             yield message
 
