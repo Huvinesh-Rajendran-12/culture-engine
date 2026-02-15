@@ -3,44 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 from pi_agent_core import Agent, AgentEvent, AgentOptions, AssistantMessage, Model, TextContent, ToolCall
-
 from ..config import get_settings
 from .anthropic_stream import stream_anthropic
-from .tools import create_flowforge_tools
-
-KB_DIR = Path(__file__).resolve().parents[3] / "kb"
-
-
-def load_knowledge_base(team: str = "default") -> str:
-    """Load all markdown files from the knowledge base directory.
-
-    Loads from the team-specific folder, falling back to default/ for
-    any files the team folder doesn't override.
-    """
-    default_dir = KB_DIR / "default"
-    team_dir = KB_DIR / team
-
-    if not default_dir.exists():
-        return ""
-
-    files: dict[str, Path] = {}
-    for md_file in sorted(default_dir.glob("*.md")):
-        files[md_file.name] = md_file
-
-    if team != "default" and team_dir.exists():
-        for md_file in sorted(team_dir.glob("*.md")):
-            files[md_file.name] = md_file
-
-    sections = []
-    for name in sorted(files):
-        content = files[name].read_text()
-        sections.append(f"## {name.removesuffix('.md').replace('_', ' ').title()}\n\n{content}")
-    return "\n\n---\n\n".join(sections)
-
+from .tools import DEFAULT_TOOL_NAMES, create_flowforge_tools
 
 def _resolve_model_id(model_name: str) -> str:
     aliases = {
@@ -123,7 +91,7 @@ async def run_agent(
     settings = get_settings()
 
     if allowed_tools is None:
-        allowed_tools = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "search_apis", "search_knowledge_base"]
+        allowed_tools = DEFAULT_TOOL_NAMES
 
     all_tools = create_flowforge_tools(team=team, workspace_dir=workspace_dir)
     tool_set = set(allowed_tools)

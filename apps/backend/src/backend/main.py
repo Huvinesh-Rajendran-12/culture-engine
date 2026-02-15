@@ -41,7 +41,7 @@ async def create_workflow_endpoint(request: WorkflowRequest):
 
     Streams Server-Sent Events with agent progress:
     - text: Agent's reasoning and explanations
-    - tool_use: Tools being called (Write, Bash, etc.)
+    - tool_use: Tools being called (read_file, write_file, edit_file, etc.)
     - workflow: The parsed workflow DAG
     - execution_report: Simulator execution results
     - result: Final result with cost/usage

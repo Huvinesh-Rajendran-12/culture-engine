@@ -1,4 +1,6 @@
-"""Workflow agent that designs structured DAG workflows using pi-agent-core."""
+"""Unified FlowForge agent: conversational assistant that can also build workflows."""
+
+from __future__ import annotations
 
 import json
 import tempfile
@@ -10,27 +12,32 @@ from ..workflow.executor import WorkflowExecutor
 from ..workflow.schema import Workflow
 from ..workflow.store import WorkflowStore
 from .base import run_agent
-
+from .tools import DEFAULT_TOOL_NAMES
 
 MAX_FIX_ATTEMPTS = 2
 
-FIX_SYSTEM_PROMPT = """\
-You are FlowForge, an AI agent that fixes workflow JSON files.
+FLOWFORGE_SYSTEM_PROMPT = """\
+You are FlowForge, an AI automation assistant.
 
-You will be given an execution report showing which workflow nodes failed and why.
-Read the existing workflow.json, diagnose the issue, fix it, and write the corrected file back.
+You can converse with users, gather requirements, and produce executable workflow DAGs.
+When asked to design or modify a workflow, write valid JSON to `workflow.json` using the `write_file` tool.
 
-{schema_description}
+## Available tools
+- file tools: read_file, write_file, edit_file
+- discovery tools: search_apis, search_knowledge_base
 
-## Available Tools
-- **search_apis**: Search available service APIs to find correct actions and parameters
-- **search_knowledge_base**: Search the organization's knowledge base for policies and procedures
+## Workflow JSON contract
+- Root keys: id, name, description, team, nodes, edges, parameters, version
+- Every node must include: id, name, description, service, action, actor, parameters, depends_on, outputs
+- Use {{param_name}} for global parameters
+- Use {{node_id.output_key}} for upstream outputs
+- edges must mirror depends_on relationships
 
-## Rules
-- Only modify what is necessary to fix the reported failures
-- Use search_apis to verify correct service actions and parameter names
-- Ensure all node dependencies remain valid
-- The edges array must mirror the depends_on relationships
+## Design guidance
+- Use search_knowledge_base to find required policy/process steps
+- Use search_apis to validate service/action/parameter choices
+- Keep dependencies valid and deterministic
+- Always return at least one short natural-language text response per turn
 """
 
 WORKFLOW_SCHEMA_DESCRIPTION = """\
@@ -138,76 +145,57 @@ EXAMPLE_WORKFLOW_JSON = """\
 }
 """
 
-GENERATE_SYSTEM_PROMPT = """\
-You are FlowForge, an AI agent that designs workflow automations as structured JSON DAGs.
+WORKFLOW_TOOLSET = DEFAULT_TOOL_NAMES
 
-## Your Task
-1. Use the `search_knowledge_base` tool to find relevant policies, roles, and procedures for the request
-2. Use the `search_apis` tool to discover which APIs and actions are available
-3. Design a workflow as a structured JSON DAG based on what you learned
-4. Write the workflow JSON to `workflow.json` using the Write tool
-5. Review: verify all required policy steps are included, dependencies are correct, roles match
 
-## Available Tools
-- **search_apis**: Search available service APIs by intent (e.g., "create employee", "send email", "grant repo access")
-- **search_knowledge_base**: Search the organization's knowledge base for policies, roles, systems, and procedures
+def _build_initial_prompt(
+    *,
+    workspace: str,
+    description: str,
+    context: dict[str, Any] | None,
+    existing_workflow: Workflow | None,
+) -> str:
+    base = (
+        f"Your workspace directory is: {workspace}\n"
+        f"Write all files there using absolute paths (e.g., {workspace}/workflow.json).\n\n"
+        f"Workflow schema reference:\n{WORKFLOW_SCHEMA_DESCRIPTION}\n\n"
+        f"Example workflow JSON:\n{EXAMPLE_WORKFLOW_JSON}\n\n"
+    )
 
-## What's Searchable
-- **APIs**: HR, Google Workspace, Slack, Jira, GitHub — employee management, email, calendar, messaging, project tracking, code access
-- **Knowledge Base**: Onboarding policies, system documentation, role definitions, compliance requirements
+    if existing_workflow:
+        base += (
+            "Modify this existing workflow based on the user request below.\n"
+            f"Current workflow:\n{existing_workflow.model_dump_json(indent=2)}\n\n"
+            "Update workflow.json and increment version by 1.\n\n"
+        )
+    else:
+        base += "Design a workflow DAG for this request and write workflow.json.\n\n"
 
-## Workflow JSON Format
-{schema_description}
+    base += f"User request:\n{description}"
 
-## Example
-{example_workflow_json}
+    if context:
+        base += "\n\nAdditional context:\n"
+        for key, value in context.items():
+            base += f"- {key}: {value}\n"
 
-## Rules
-- Every node MUST specify a service, action, actor, and parameters
-- Dependencies must reflect the policy (e.g., Google Workspace depends on HR record)
-- Use search_knowledge_base to find which steps are REQUIRED by policy
-- Use search_apis to find the correct service, action, and parameters for each step
-- Include all REQUIRED steps from the policy
-- Use {{{{param_name}}}} syntax for global parameters (e.g., {{{{employee_name}}}})
-- Use {{{{node_id.output_key}}}} syntax to reference outputs from upstream nodes
-- The edges array should mirror the depends_on relationships
-- DO NOT use task/todo management tools
-"""
+    return base
 
-MODIFY_SYSTEM_PROMPT = """\
-You are FlowForge. A team wants to customize an existing workflow.
 
-## Current Workflow
-```json
-{existing_workflow_json}
-```
-
-## Workflow JSON Format
-{schema_description}
-
-## Available Tools
-- **search_apis**: Search available service APIs by intent (e.g., "create employee", "send email")
-- **search_knowledge_base**: Search the organization's knowledge base for policies, roles, systems
-
-## Instructions
-Modify the workflow based on the user's request. You may:
-- Add new nodes (with correct dependencies)
-- Remove nodes (and rewire dependencies of nodes that depended on them)
-- Change node parameters
-- Swap a service (e.g., Jira -> Linear)
-- Change the actor for a step
-
-Use `search_apis` to discover available actions if adding new steps.
-Use `search_knowledge_base` to verify policy compliance.
-
-Write the updated workflow JSON to `workflow.json` using the Write tool.
-Increment the version number by 1.
-
-## Rules
-- Maintain valid dependency chains — if you remove a node, update depends_on of downstream nodes
-- The edges array must mirror the depends_on relationships
-- DO NOT use task/todo management tools
-"""
+async def _run_fix_attempt(
+    *,
+    workspace: str,
+    team: str,
+    prompt: str,
+) -> AsyncGenerator[dict[str, Any], None]:
+    async for message in run_agent(
+        prompt=prompt,
+        system_prompt=FLOWFORGE_SYSTEM_PROMPT,
+        workspace_dir=workspace,
+        team=team,
+        allowed_tools=WORKFLOW_TOOLSET,
+        max_turns=10,
+    ):
+        yield message
 
 
 async def generate_workflow(
@@ -217,57 +205,21 @@ async def generate_workflow(
     existing_workflow: Workflow | None = None,
     workflow_store: WorkflowStore | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
-    """Generate or modify a structured DAG workflow from natural language.
-
-    Args:
-        description: Natural language description of the desired workflow
-        context: Optional additional context (employee name, department, etc.)
-        team: Team whose KB to load (defaults to "default")
-        existing_workflow: If provided, agent modifies this workflow instead of creating new
-        workflow_store: If provided, save the workflow after successful generation
-
-    Yields:
-        Message dicts with type and content
-    """
+    """Generate or modify a structured DAG workflow from natural language."""
     workspace = tempfile.mkdtemp(prefix="flowforge-")
     workflow_file = Path(workspace) / "workflow.json"
 
-    if existing_workflow:
-        system_prompt = MODIFY_SYSTEM_PROMPT.format(
-            existing_workflow_json=existing_workflow.model_dump_json(indent=2),
-            schema_description=WORKFLOW_SCHEMA_DESCRIPTION,
-        )
-    else:
-        system_prompt = GENERATE_SYSTEM_PROMPT.format(
-            schema_description=WORKFLOW_SCHEMA_DESCRIPTION,
-            example_workflow_json=EXAMPLE_WORKFLOW_JSON,
-        )
-
-    prompt = (
-        f"Your workspace directory is: {workspace}\n"
-        f"Write all files there using absolute paths (e.g., {workspace}/workflow.json).\n\n"
-    )
-
-    if existing_workflow:
-        prompt += f"Modify the existing workflow based on the following request:\n\n{description}"
-    else:
-        prompt += f"Design a workflow DAG for the following request:\n\n{description}"
-
-    if context:
-        prompt += "\n\nAdditional context:\n"
-        for key, value in context.items():
-            prompt += f"- {key}: {value}\n"
-
     async for message in run_agent(
-        prompt=prompt,
-        system_prompt=system_prompt,
+        prompt=_build_initial_prompt(
+            workspace=workspace,
+            description=description,
+            context=context,
+            existing_workflow=existing_workflow,
+        ),
+        system_prompt=FLOWFORGE_SYSTEM_PROMPT,
         workspace_dir=workspace,
         team=team,
-        allowed_tools=[
-            "Read", "Write", "Edit", "Bash", "Glob",
-            "search_apis",
-            "search_knowledge_base",
-        ],
+        allowed_tools=WORKFLOW_TOOLSET,
         max_turns=30,
     ):
         yield message
@@ -277,11 +229,9 @@ async def generate_workflow(
         yield {"type": "workspace", "content": {"path": workspace}}
         return
 
-    fix_system_prompt = FIX_SYSTEM_PROMPT.format(
-        schema_description=WORKFLOW_SCHEMA_DESCRIPTION,
-    )
-
     report = None
+    workflow = None
+
     for attempt in range(1, MAX_FIX_ATTEMPTS + 2):
         try:
             workflow_data = json.loads(workflow_file.read_text())
@@ -294,21 +244,14 @@ async def generate_workflow(
             if attempt > MAX_FIX_ATTEMPTS:
                 break
 
-            async for message in run_agent(
+            async for message in _run_fix_attempt(
+                workspace=workspace,
+                team=team,
                 prompt=(
                     f"The workflow.json file at {workflow_file} failed to parse "
                     f"with the following error:\n\n{e}\n\n"
                     f"Read the file, fix the JSON, and write it back."
                 ),
-                system_prompt=fix_system_prompt,
-                workspace_dir=workspace,
-                team=team,
-                allowed_tools=[
-                    "Read", "Write", "Edit",
-                    "search_apis",
-                    "search_knowledge_base",
-                ],
-                max_turns=10,
             ):
                 yield message
             continue
@@ -345,26 +288,19 @@ async def generate_workflow(
             f"Running self-correction (attempt {attempt}/{MAX_FIX_ATTEMPTS})...",
         }
 
-        async for message in run_agent(
+        async for message in _run_fix_attempt(
+            workspace=workspace,
+            team=team,
             prompt=(
                 f"The workflow at {workflow_file} was executed but had failures.\n\n"
                 f"## Execution Report\n\n{report.to_markdown()}\n\n"
                 f"Read the workflow.json, fix the issues described above, "
                 f"and write the corrected file back."
             ),
-            system_prompt=fix_system_prompt,
-            workspace_dir=workspace,
-            team=team,
-            allowed_tools=[
-                "Read", "Write", "Edit",
-                "search_apis",
-                "search_knowledge_base",
-            ],
-            max_turns=10,
         ):
             yield message
 
-    if workflow_store and report and report.failed == 0:
+    if workflow_store and report and report.failed == 0 and workflow is not None:
         workflow_store.save(workflow)
         yield {
             "type": "workflow_saved",
