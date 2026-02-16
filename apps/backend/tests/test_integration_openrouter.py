@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from backend.agents.workflow_agent import generate_workflow
+from backend.workflow.pipeline import generate_workflow
 from backend.config import get_settings
 from backend.workflow.schema import Workflow
 from backend.workflow.store import WorkflowStore

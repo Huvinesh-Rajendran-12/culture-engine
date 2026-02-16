@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
-from .agents import generate_workflow
+from .workflow.pipeline import generate_workflow
 from .models import HealthResponse, WorkflowRequest
 from .workflow.store import WorkflowStore
 

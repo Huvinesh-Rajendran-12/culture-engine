@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from backend.agents.workflow_agent import generate_workflow
+from backend.workflow.pipeline import generate_workflow
 from backend.workflow.schema import Workflow
 from backend.workflow.store import WorkflowStore
 
@@ -88,7 +88,7 @@ class WorkflowGenerationTests(unittest.IsolatedAsyncioTestCase):
             Path(workspace_dir, "workflow.json").write_text(json.dumps(workflow, indent=2))
             yield {"type": "text", "content": "workflow drafted"}
 
-        with patch("backend.agents.workflow_agent.run_agent", new=fake_run_agent):
+        with patch("backend.workflow.pipeline.run_agent", new=fake_run_agent):
             messages = await self._collect_messages(
                 generate_workflow(
                     description="Create onboarding workflow",
@@ -218,7 +218,7 @@ class WorkflowGenerationTests(unittest.IsolatedAsyncioTestCase):
                 target.write_text(json.dumps(broken, indent=2))
                 yield {"type": "text", "content": "drafted initial workflow"}
 
-        with patch("backend.agents.workflow_agent.run_agent", new=fake_run_agent):
+        with patch("backend.workflow.pipeline.run_agent", new=fake_run_agent):
             messages = await self._collect_messages(
                 generate_workflow(
                     description="Create onboarding workflow",
@@ -273,7 +273,7 @@ class WorkflowGenerationTests(unittest.IsolatedAsyncioTestCase):
         seen_modify_prompt = {"value": False}
 
         async def fake_run_agent(prompt, system_prompt, workspace_dir, team, allowed_tools=None, max_turns=50):
-            if "Modify the existing workflow" in prompt:
+            if "Modify this existing workflow" in prompt:
                 seen_modify_prompt["value"] = True
 
             refined = {
@@ -311,7 +311,7 @@ class WorkflowGenerationTests(unittest.IsolatedAsyncioTestCase):
             Path(workspace_dir, "workflow.json").write_text(json.dumps(refined, indent=2))
             yield {"type": "text", "content": "workflow refined"}
 
-        with patch("backend.agents.workflow_agent.run_agent", new=fake_run_agent):
+        with patch("backend.workflow.pipeline.run_agent", new=fake_run_agent):
             messages = await self._collect_messages(
                 generate_workflow(
                     description="Add Google provisioning to this workflow",

@@ -1,5 +1,5 @@
 """FlowForge AI Agents module."""
 
-from .workflow_agent import generate_workflow
+from .base import run_agent
 
-__all__ = ["generate_workflow"]
+__all__ = ["run_agent"]

@@ -1,4 +1,4 @@
-"""Unified FlowForge agent: conversational assistant that can also build workflows."""
+"""Workflow generation pipeline: prompt → agent → parse → execute → self-correct."""
 
 from __future__ import annotations
 
@@ -7,16 +7,16 @@ import tempfile
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
+from ..agents.base import run_agent
+from ..agents.tools import DEFAULT_TOOL_NAMES
 from ..simulator import create_simulator
-from ..workflow.executor import WorkflowExecutor
-from ..workflow.schema import Workflow
-from ..workflow.store import WorkflowStore
-from .base import run_agent
-from .tools import DEFAULT_TOOL_NAMES
+from .executor import WorkflowExecutor
+from .schema import Workflow
+from .store import WorkflowStore
 
 MAX_FIX_ATTEMPTS = 2
 
-FLOWFORGE_SYSTEM_PROMPT = """\
+SYSTEM_PROMPT = """\
 You are FlowForge, an AI automation assistant.
 
 You can converse with users, gather requirements, and produce executable workflow DAGs.
@@ -145,10 +145,8 @@ EXAMPLE_WORKFLOW_JSON = """\
 }
 """
 
-WORKFLOW_TOOLSET = DEFAULT_TOOL_NAMES
 
-
-def _build_initial_prompt(
+def _build_prompt(
     *,
     workspace: str,
     description: str,
@@ -181,23 +179,6 @@ def _build_initial_prompt(
     return base
 
 
-async def _run_fix_attempt(
-    *,
-    workspace: str,
-    team: str,
-    prompt: str,
-) -> AsyncGenerator[dict[str, Any], None]:
-    async for message in run_agent(
-        prompt=prompt,
-        system_prompt=FLOWFORGE_SYSTEM_PROMPT,
-        workspace_dir=workspace,
-        team=team,
-        allowed_tools=WORKFLOW_TOOLSET,
-        max_turns=10,
-    ):
-        yield message
-
-
 async def generate_workflow(
     description: str,
     context: dict[str, Any] | None = None,
@@ -210,16 +191,16 @@ async def generate_workflow(
     workflow_file = Path(workspace) / "workflow.json"
 
     async for message in run_agent(
-        prompt=_build_initial_prompt(
+        prompt=_build_prompt(
             workspace=workspace,
             description=description,
             context=context,
             existing_workflow=existing_workflow,
         ),
-        system_prompt=FLOWFORGE_SYSTEM_PROMPT,
+        system_prompt=SYSTEM_PROMPT,
         workspace_dir=workspace,
         team=team,
-        allowed_tools=WORKFLOW_TOOLSET,
+        allowed_tools=DEFAULT_TOOL_NAMES,
         max_turns=30,
     ):
         yield message
@@ -244,14 +225,17 @@ async def generate_workflow(
             if attempt > MAX_FIX_ATTEMPTS:
                 break
 
-            async for message in _run_fix_attempt(
-                workspace=workspace,
-                team=team,
+            async for message in run_agent(
                 prompt=(
                     f"The workflow.json file at {workflow_file} failed to parse "
                     f"with the following error:\n\n{e}\n\n"
                     f"Read the file, fix the JSON, and write it back."
                 ),
+                system_prompt=SYSTEM_PROMPT,
+                workspace_dir=workspace,
+                team=team,
+                allowed_tools=DEFAULT_TOOL_NAMES,
+                max_turns=10,
             ):
                 yield message
             continue
@@ -288,15 +272,18 @@ async def generate_workflow(
             f"Running self-correction (attempt {attempt}/{MAX_FIX_ATTEMPTS})...",
         }
 
-        async for message in _run_fix_attempt(
-            workspace=workspace,
-            team=team,
+        async for message in run_agent(
             prompt=(
                 f"The workflow at {workflow_file} was executed but had failures.\n\n"
                 f"## Execution Report\n\n{report.to_markdown()}\n\n"
                 f"Read the workflow.json, fix the issues described above, "
                 f"and write the corrected file back."
             ),
+            system_prompt=SYSTEM_PROMPT,
+            workspace_dir=workspace,
+            team=team,
+            allowed_tools=DEFAULT_TOOL_NAMES,
+            max_turns=10,
         ):
             yield message
 
