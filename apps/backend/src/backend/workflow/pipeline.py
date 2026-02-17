@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -24,6 +25,7 @@ When asked to design or modify a workflow, write valid JSON to `workflow.json` u
 
 ## Available tools
 - file tools: read_file, write_file, edit_file
+- execution: run_command (runs shell commands in the workspace; use for inspecting files, running scripts, validating data — avoid destructive or network-accessing commands)
 - discovery tools: search_apis, search_knowledge_base
 
 ## Workflow JSON contract
@@ -169,12 +171,13 @@ def _build_prompt(
     else:
         base += "Design a workflow DAG for this request and write workflow.json.\n\n"
 
-    base += f"User request:\n{description}"
+    base += f"<user_request>\n{description}\n</user_request>"
 
     if context:
-        base += "\n\nAdditional context:\n"
+        base += "\n\n<user_context>\n"
         for key, value in context.items():
             base += f"- {key}: {value}\n"
+        base += "</user_context>\n"
 
     return base
 
@@ -189,113 +192,152 @@ async def generate_workflow(
     """Generate or modify a structured DAG workflow from natural language."""
     workspace = tempfile.mkdtemp(prefix="flowforge-")
     workflow_file = Path(workspace) / "workflow.json"
+    completed_normally = False
 
-    async for message in run_agent(
-        prompt=_build_prompt(
-            workspace=workspace,
-            description=description,
-            context=context,
-            existing_workflow=existing_workflow,
-        ),
-        system_prompt=SYSTEM_PROMPT,
-        workspace_dir=workspace,
-        team=team,
-        allowed_tools=DEFAULT_TOOL_NAMES,
-        max_turns=30,
-    ):
-        yield message
-
-    if not workflow_file.exists():
-        yield {"type": "error", "content": "Agent did not produce workflow.json"}
-        yield {"type": "workspace", "content": {"path": workspace}}
-        return
-
-    report = None
-    workflow = None
-
-    for attempt in range(1, MAX_FIX_ATTEMPTS + 2):
+    try:
         try:
-            workflow_data = json.loads(workflow_file.read_text())
-            workflow = Workflow.model_validate(workflow_data)
-        except Exception as e:
-            yield {
-                "type": "error",
-                "content": f"Failed to parse workflow.json (attempt {attempt}): {e}",
-            }
-            if attempt > MAX_FIX_ATTEMPTS:
-                break
-
             async for message in run_agent(
-                prompt=(
-                    f"The workflow.json file at {workflow_file} failed to parse "
-                    f"with the following error:\n\n{e}\n\n"
-                    f"Read the file, fix the JSON, and write it back."
+                prompt=_build_prompt(
+                    workspace=workspace,
+                    description=description,
+                    context=context,
+                    existing_workflow=existing_workflow,
                 ),
                 system_prompt=SYSTEM_PROMPT,
                 workspace_dir=workspace,
                 team=team,
                 allowed_tools=DEFAULT_TOOL_NAMES,
-                max_turns=10,
+                max_turns=30,
             ):
                 yield message
-            continue
+        except Exception as e:
+            yield {"type": "error", "content": f"Agent failed during workflow generation: {e}"}
+            yield {"type": "workspace", "content": {"path": workspace}}
+            return
 
-        yield {"type": "workflow", "content": workflow.model_dump()}
+        if not workflow_file.exists():
+            yield {"type": "error", "content": "Agent did not produce workflow.json"}
+            yield {"type": "workspace", "content": {"path": workspace}}
+            return
 
-        state, trace, services, failure_config = create_simulator()
-        executor = WorkflowExecutor(
-            state=state,
-            trace=trace,
-            services=services,
-            failure_config=failure_config,
-        )
-        report = await executor.execute(workflow)
+        final_report = None
+        final_workflow = None
 
-        yield {
-            "type": "execution_report",
-            "content": {
-                "report": report.to_dict(),
-                "markdown": report.to_markdown(),
-                "attempt": attempt,
-            },
-        }
+        for attempt_idx in range(MAX_FIX_ATTEMPTS + 1):
+            attempt = attempt_idx + 1
 
-        if report.failed == 0:
-            break
+            report = None
+            workflow = None
 
-        if attempt > MAX_FIX_ATTEMPTS:
-            break
+            try:
+                workflow_data = json.loads(workflow_file.read_text())
+                workflow = Workflow.model_validate(workflow_data)
+            except Exception as e:
+                yield {
+                    "type": "error",
+                    "content": f"Failed to parse workflow.json (attempt {attempt}): {e}",
+                }
+                if attempt_idx >= MAX_FIX_ATTEMPTS:
+                    break
 
-        yield {
-            "type": "text",
-            "content": f"Execution had {report.failed} failure(s). "
-            f"Running self-correction (attempt {attempt}/{MAX_FIX_ATTEMPTS})...",
-        }
+                try:
+                    async for message in run_agent(
+                        prompt=(
+                            f"The workflow.json file at {workflow_file} failed to parse "
+                            f"with the following error:\n\n{e}\n\n"
+                            f"Read the file, fix the JSON, and write it back."
+                        ),
+                        system_prompt=SYSTEM_PROMPT,
+                        workspace_dir=workspace,
+                        team=team,
+                        allowed_tools=DEFAULT_TOOL_NAMES,
+                        max_turns=10,
+                    ):
+                        yield message
+                except Exception as agent_exc:
+                    yield {
+                        "type": "error",
+                        "content": (
+                            f"Self-correction agent failed while fixing parse error "
+                            f"(attempt {attempt}): {agent_exc}"
+                        ),
+                    }
+                    break
 
-        async for message in run_agent(
-            prompt=(
-                f"The workflow at {workflow_file} was executed but had failures.\n\n"
-                f"## Execution Report\n\n{report.to_markdown()}\n\n"
-                f"Read the workflow.json, fix the issues described above, "
-                f"and write the corrected file back."
-            ),
-            system_prompt=SYSTEM_PROMPT,
-            workspace_dir=workspace,
-            team=team,
-            allowed_tools=DEFAULT_TOOL_NAMES,
-            max_turns=10,
-        ):
-            yield message
+                continue
 
-    if workflow_store and report and report.failed == 0 and workflow is not None:
-        workflow_store.save(workflow)
-        yield {
-            "type": "workflow_saved",
-            "content": {
-                "workflow_id": workflow.id,
-                "team": workflow.team,
-                "version": workflow.version,
-            },
-        }
+            final_workflow = workflow
+            yield {"type": "workflow", "content": workflow.model_dump()}
 
-    yield {"type": "workspace", "content": {"path": workspace}}
+            state, trace, services, failure_config = create_simulator()
+            executor = WorkflowExecutor(
+                state=state,
+                trace=trace,
+                services=services,
+                failure_config=failure_config,
+            )
+            report = await executor.execute(workflow)
+            final_report = report
+
+            yield {
+                "type": "execution_report",
+                "content": {
+                    "report": report.to_dict(),
+                    "markdown": report.to_markdown(),
+                    "attempt": attempt,
+                },
+            }
+
+            if report.failed == 0:
+                break
+
+            if attempt_idx >= MAX_FIX_ATTEMPTS:
+                break
+
+            yield {
+                "type": "text",
+                "content": f"Execution had {report.failed} failure(s). "
+                f"Running self-correction (attempt {attempt}/{MAX_FIX_ATTEMPTS})...",
+            }
+
+            try:
+                async for message in run_agent(
+                    prompt=(
+                        f"The workflow at {workflow_file} was executed but had failures.\n\n"
+                        f"## Execution Report\n\n{report.to_markdown()}\n\n"
+                        f"Read the workflow.json, fix the issues described above, "
+                        f"and write the corrected file back."
+                    ),
+                    system_prompt=SYSTEM_PROMPT,
+                    workspace_dir=workspace,
+                    team=team,
+                    allowed_tools=DEFAULT_TOOL_NAMES,
+                    max_turns=10,
+                ):
+                    yield message
+            except Exception as agent_exc:
+                yield {
+                    "type": "error",
+                    "content": (
+                        f"Self-correction agent failed while fixing execution failures "
+                        f"(attempt {attempt}): {agent_exc}"
+                    ),
+                }
+                break
+
+        if workflow_store and final_report and final_report.failed == 0 and final_workflow is not None:
+            workflow_store.save(final_workflow)
+            yield {
+                "type": "workflow_saved",
+                "content": {
+                    "workflow_id": final_workflow.id,
+                    "team": final_workflow.team,
+                    "version": final_workflow.version,
+                },
+            }
+
+        yield {"type": "workspace", "content": {"path": workspace}}
+        completed_normally = True
+    finally:
+        if completed_normally:
+            shutil.rmtree(workspace, ignore_errors=True)
