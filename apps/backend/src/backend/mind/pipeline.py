@@ -9,12 +9,14 @@ from .memory import MemoryManager
 from .orchestrator import execute_task
 from .schema import MemoryEntry, Task
 from .store import MindStore
+from .tools import RuntimeToolStore
 
 
 async def delegate_to_mind(
     *,
     mind_store: MindStore,
     memory_manager: MemoryManager,
+    runtime_tool_store: RuntimeToolStore,
     mind_id: str,
     description: str,
     team: str = "default",
@@ -44,6 +46,7 @@ async def delegate_to_mind(
             team=team,
             memories=memories,
             memory_manager=memory_manager,
+            runtime_tool_store=runtime_tool_store,
         ):
             if event.get("type") == "text" and isinstance(event.get("content"), str):
                 latest_text = event["content"]

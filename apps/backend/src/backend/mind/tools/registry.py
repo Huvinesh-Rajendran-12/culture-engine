@@ -12,6 +12,8 @@ class ToolRegistry:
         self._tools: dict[str, AgentTool] = {}
 
     def register(self, tool: AgentTool) -> None:
+        if tool.name in self._tools:
+            raise ValueError(f"Tool '{tool.name}' already registered")
         self._tools[tool.name] = tool
 
     def register_many(self, tools: list[AgentTool]) -> None:

@@ -52,3 +52,11 @@ class DelegateTaskRequest(BaseModel):
 
     description: str
     team: str = "default"
+
+
+class RuntimeToolCreateRequest(BaseModel):
+    """Register a runtime tool for a Mind."""
+
+    name: str
+    description: str
+    response: str

@@ -1,14 +1,16 @@
-"""Mind-specific tool primitives (memory-focused for Phase 2 foundation)."""
+"""Mind tool primitives for Phase 2 foundation."""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pi_agent_core import AgentTool, AgentToolResult, AgentToolSchema, TextContent
 
 from ..memory import MemoryManager
 from ..schema import MemoryEntry
+from .runtime_store import RuntimeToolSpec
 
 
 def _text_result(value: str) -> AgentToolResult:
@@ -68,3 +70,68 @@ def create_memory_tools(memory_manager: MemoryManager, mind_id: str) -> list[Age
             execute=memory_search_execute,
         ),
     ]
+
+
+def create_spawn_agent_tool(
+    spawn_agent_fn: Callable[[str, int], Awaitable[str]],
+) -> AgentTool:
+    async def spawn_agent_execute(tool_call_id: str, params: dict[str, Any], **_: object) -> AgentToolResult:
+        objective = params["objective"]
+        max_turns = int(params.get("max_turns", 12))
+        result = await spawn_agent_fn(objective, max_turns)
+        return _text_result(result)
+
+    return AgentTool(
+        name="spawn_agent",
+        description="Spawn a focused Drone-style sub-agent for a specific objective.",
+        parameters=AgentToolSchema(
+            properties={
+                "objective": {"type": "string", "description": "Focused sub-task objective."},
+                "max_turns": {
+                    "type": "integer",
+                    "description": "Maximum turns for the sub-agent run.",
+                    "default": 12,
+                },
+            },
+            required=["objective"],
+        ),
+        execute=spawn_agent_execute,
+    )
+
+
+def create_runtime_tools(specs: list[RuntimeToolSpec]) -> list[AgentTool]:
+    tools: list[AgentTool] = []
+
+    for spec in specs:
+        async def runtime_tool_execute(
+            tool_call_id: str,
+            params: dict[str, Any],
+            *,
+            _spec: RuntimeToolSpec = spec,
+            **_: object,
+        ) -> AgentToolResult:
+            payload = {
+                "tool": _spec.name,
+                "input": params.get("input", {}),
+                "response": _spec.response,
+            }
+            return _text_result(json.dumps(payload, indent=2))
+
+        tools.append(
+            AgentTool(
+                name=spec.name,
+                description=spec.description,
+                parameters=AgentToolSchema(
+                    properties={
+                        "input": {
+                            "type": "object",
+                            "description": "Optional structured input for this runtime tool.",
+                        }
+                    },
+                    required=[],
+                ),
+                execute=runtime_tool_execute,
+            )
+        )
+
+    return tools

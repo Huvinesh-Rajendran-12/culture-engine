@@ -10,7 +10,14 @@ from .mind.identity import create_mind_identity
 from .mind.memory import MemoryManager
 from .mind.pipeline import delegate_to_mind
 from .mind.store import MindStore
-from .models import DelegateTaskRequest, HealthResponse, MindCreateRequest, WorkflowRequest
+from .mind.tools import RuntimeToolSpec, RuntimeToolStore
+from .models import (
+    DelegateTaskRequest,
+    HealthResponse,
+    MindCreateRequest,
+    RuntimeToolCreateRequest,
+    WorkflowRequest,
+)
 from .workflow.pipeline import generate_workflow
 from .workflow.store import WorkflowStore
 
@@ -43,6 +50,7 @@ if not CULTURE_DATA_DIR.exists() and LEGACY_MIND_DATA_DIR.exists():
 workflow_store = WorkflowStore(WORKFLOWS_DIR)
 mind_store = MindStore(CULTURE_DATA_DIR)
 memory_manager = MemoryManager(CULTURE_DATA_DIR / "memory")
+runtime_tool_store = RuntimeToolStore(CULTURE_DATA_DIR / "tools")
 
 
 @app.get("/api/health", response_model=HealthResponse)
@@ -134,6 +142,7 @@ async def delegate_task(mind_id: str, request: DelegateTaskRequest):
         async for event in delegate_to_mind(
             mind_store=mind_store,
             memory_manager=memory_manager,
+            runtime_tool_store=runtime_tool_store,
             mind_id=mind_id,
             description=request.description,
             team=request.team,
@@ -172,3 +181,32 @@ def list_mind_memory(mind_id: str, category: str | None = None):
     if mind is None:
         raise HTTPException(status_code=404, detail="Mind not found")
     return [m.model_dump(mode="json") for m in memory_manager.list_all(mind_id, category=category)]
+
+
+@app.get("/api/minds/{mind_id}/tools")
+def list_mind_tools(mind_id: str):
+    mind = mind_store.load_mind(mind_id)
+    if mind is None:
+        raise HTTPException(status_code=404, detail="Mind not found")
+    return [spec.model_dump(mode="json") for spec in runtime_tool_store.list_tools(mind_id)]
+
+
+@app.post("/api/minds/{mind_id}/tools")
+def register_mind_tool(mind_id: str, request: RuntimeToolCreateRequest):
+    mind = mind_store.load_mind(mind_id)
+    if mind is None:
+        raise HTTPException(status_code=404, detail="Mind not found")
+
+    try:
+        spec = runtime_tool_store.save_tool(
+            mind_id,
+            RuntimeToolSpec(
+                name=request.name,
+                description=request.description,
+                response=request.response,
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return spec.model_dump(mode="json")
