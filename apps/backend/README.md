@@ -46,10 +46,12 @@ uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 
 ### Culture Engine (Mind)
 - `POST /api/minds`
+- `GET /api/minds`
 - `GET /api/minds/{mind_id}`
 - `POST /api/minds/{mind_id}/delegate` (SSE)
 - `GET /api/minds/{mind_id}/tasks`
 - `GET /api/minds/{mind_id}/tasks/{task_id}`
+- `GET /api/minds/{mind_id}/tasks/{task_id}/trace`
 - `GET /api/minds/{mind_id}/memory`
 
 ### Legacy workflow endpoints
@@ -70,6 +72,7 @@ Notes:
 - no runtime tool registration API yet
 - no persistent dynamic tool store yet
 - explicit `spawn_agent` delegation only (no implicit auto-splitting)
+- guardrails: capped spawned sub-agent calls, capped sub-agent turns, capped event volume per run
 
 ## Examples
 

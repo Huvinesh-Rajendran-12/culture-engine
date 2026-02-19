@@ -120,6 +120,11 @@ def create_mind(request: MindCreateRequest):
     return mind.model_dump(mode="json")
 
 
+@app.get("/api/minds")
+def list_minds():
+    return [mind.model_dump(mode="json") for mind in mind_store.list_minds()]
+
+
 @app.get("/api/minds/{mind_id}")
 def get_mind(mind_id: str):
     mind = mind_store.load_mind(mind_id)
@@ -164,6 +169,14 @@ def get_mind_task(mind_id: str, task_id: str):
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task.model_dump(mode="json")
+
+
+@app.get("/api/minds/{mind_id}/tasks/{task_id}/trace")
+def get_mind_task_trace(mind_id: str, task_id: str):
+    trace = mind_store.load_task_trace(mind_id, task_id)
+    if trace is None:
+        raise HTTPException(status_code=404, detail="Task trace not found")
+    return trace
 
 
 @app.get("/api/minds/{mind_id}/memory")

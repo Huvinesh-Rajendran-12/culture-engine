@@ -16,8 +16,10 @@ class MindStore:
         self.base_dir = base_dir
         self.minds_dir = base_dir / "minds"
         self.tasks_dir = base_dir / "tasks"
+        self.traces_dir = base_dir / "traces"
         self.minds_dir.mkdir(parents=True, exist_ok=True)
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
+        self.traces_dir.mkdir(parents=True, exist_ok=True)
 
     def save_mind(self, mind: MindProfile) -> str:
         """Save a Mind profile. Returns the Mind ID."""
@@ -81,3 +83,26 @@ class MindStore:
             data = json.loads(filepath.read_text())
             tasks.append(Task.model_validate(data))
         return tasks
+
+    def _trace_dir(self, mind_id: str, *, create: bool = False) -> Path:
+        d = self.traces_dir / mind_id
+        if create:
+            d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def save_task_trace(self, mind_id: str, task_id: str, events: list[dict]) -> None:
+        """Persist task execution trace events."""
+        trace_file = self._trace_dir(mind_id, create=True) / f"{task_id}.json"
+        payload = {
+            "mind_id": mind_id,
+            "task_id": task_id,
+            "events": events,
+        }
+        trace_file.write_text(json.dumps(payload, indent=2, default=str))
+
+    def load_task_trace(self, mind_id: str, task_id: str) -> Optional[dict]:
+        """Load a persisted task trace by task ID."""
+        trace_file = self._trace_dir(mind_id) / f"{task_id}.json"
+        if not trace_file.exists():
+            return None
+        return json.loads(trace_file.read_text())

@@ -13,14 +13,30 @@ from ..schema import MemoryEntry
 
 DEFAULT_SPAWN_MAX_CALLS = 3
 DEFAULT_SPAWN_MAX_TURNS = 20
+DEFAULT_MEMORY_SAVE_MAX_CALLS = 12
 
 
 def _text_result(value: str) -> AgentToolResult:
     return AgentToolResult(content=[TextContent(text=value)])
 
 
-def create_memory_tools(memory_manager: MemoryManager, mind_id: str) -> list[AgentTool]:
+def create_memory_tools(
+    memory_manager: MemoryManager,
+    mind_id: str,
+    *,
+    max_saves: int = DEFAULT_MEMORY_SAVE_MAX_CALLS,
+) -> list[AgentTool]:
+    memory_save_calls = 0
+
     async def memory_save_execute(tool_call_id: str, params: dict[str, Any], **_: object) -> AgentToolResult:
+        nonlocal memory_save_calls
+        memory_save_calls += 1
+
+        if memory_save_calls > max_saves:
+            return _text_result(
+                f"memory_save call limit reached ({max_saves}). Continue without saving more memory."
+            )
+
         entry = MemoryEntry(
             mind_id=mind_id,
             content=params["content"],

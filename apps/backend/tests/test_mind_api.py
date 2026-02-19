@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 from backend import main
 from backend.mind.memory import MemoryManager
 from backend.mind.store import MindStore
-from backend.mind.tools.primitives import create_spawn_agent_tool
+from backend.mind.tools.primitives import create_memory_tools, create_spawn_agent_tool
 
 
 class MindApiTests(unittest.TestCase):
@@ -66,6 +66,10 @@ class MindApiTests(unittest.TestCase):
         self.assertEqual(create_resp.status_code, 200)
         mind_id = create_resp.json()["id"]
 
+        list_resp = self.client.get("/api/minds")
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertTrue(any(m["id"] == mind_id for m in list_resp.json()))
+
         async def fake_run_agent(*args, **kwargs):
             tools_override = kwargs.get("tools_override") or []
             tool_names = {tool.name for tool in tools_override}
@@ -101,16 +105,28 @@ class MindApiTests(unittest.TestCase):
                 events = self._read_sse(response)
 
         event_types = [evt["type"] for evt in events]
+        self.assertIn("task_started", event_types)
         self.assertIn("tool_registry", event_types)
         self.assertIn("tool_use", event_types)
         self.assertIn("tool_result", event_types)
         self.assertIn("result", event_types)
+        self.assertIn("task_finished", event_types)
 
         tasks_resp = self.client.get(f"/api/minds/{mind_id}/tasks")
         self.assertEqual(tasks_resp.status_code, 200)
         tasks = tasks_resp.json()
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0]["status"], "completed")
+
+        task_id = tasks[0]["id"]
+        trace_resp = self.client.get(f"/api/minds/{mind_id}/tasks/{task_id}/trace")
+        self.assertEqual(trace_resp.status_code, 200)
+        trace = trace_resp.json()
+        self.assertEqual(trace["task_id"], task_id)
+        trace_types = [evt["type"] for evt in trace["events"]]
+        self.assertIn("task_started", trace_types)
+        self.assertIn("tool_use", trace_types)
+        self.assertIn("task_finished", trace_types)
 
         memory_resp = self.client.get(f"/api/minds/{mind_id}/memory")
         self.assertEqual(memory_resp.status_code, 200)
@@ -137,3 +153,23 @@ class SpawnAgentToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("call limit reached", second_text)
 
         self.assertEqual(calls, [("Research pricing", 7)])
+
+
+class MemoryToolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_memory_save_limits_calls(self):
+        tmp_dir = Path(tempfile.mkdtemp(prefix="memory-tool-tests-"))
+        manager = MemoryManager(tmp_dir / "memory")
+        try:
+            tools = create_memory_tools(manager, "mind_1", max_saves=1)
+            memory_save = next(tool for tool in tools if tool.name == "memory_save")
+
+            first = await memory_save.execute("mc_1", {"content": "first note"})
+            self.assertIn("Saved memory:", first.content[0].text)
+
+            second = await memory_save.execute("mc_2", {"content": "second note"})
+            self.assertIn("call limit reached", second.content[0].text)
+
+            memories = manager.list_all("mind_1")
+            self.assertEqual(len(memories), 1)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)

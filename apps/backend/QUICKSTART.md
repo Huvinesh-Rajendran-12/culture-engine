@@ -74,8 +74,10 @@ Common event types:
 ### Inspect persisted state
 
 ```bash
+curl http://localhost:8000/api/minds
 curl http://localhost:8000/api/minds/<mind_id>/tasks
 curl http://localhost:8000/api/minds/<mind_id>/memory
+curl http://localhost:8000/api/minds/<mind_id>/tasks/<task_id>/trace
 ```
 
 ---
