@@ -1,7 +1,7 @@
 """Execution report model with markdown rendering."""
 
 from ..simulator.state import ExecutionTrace
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ExecutionReport(BaseModel):
@@ -14,7 +14,7 @@ class ExecutionReport(BaseModel):
     failed: int
     skipped: int
     trace: ExecutionTrace
-    dependency_violations: list[str] = []
+    dependency_violations: list[str] = Field(default_factory=list)
 
     def to_markdown(self) -> str:
         lines = [

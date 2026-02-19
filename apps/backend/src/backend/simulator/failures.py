@@ -2,7 +2,7 @@
 
 import random
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class FailureRule(BaseModel):
@@ -16,7 +16,7 @@ class FailureRule(BaseModel):
 class FailureConfig(BaseModel):
     """Maps service.action keys to failure rules."""
 
-    rules: dict[str, FailureRule] = {}
+    rules: dict[str, FailureRule] = Field(default_factory=dict)
 
     def should_fail(self, service: str, action: str) -> FailureRule | None:
         """Check if a service action should fail. Returns the rule if it triggers."""

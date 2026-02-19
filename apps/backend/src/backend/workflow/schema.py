@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class NodeParameter(BaseModel):
@@ -23,9 +23,9 @@ class WorkflowNode(BaseModel):
     service: str  # "slack" | "jira" | "google" | "hr" | "github"
     action: str  # "create_channel" | "send_message" | etc.
     actor: str  # "hr_manager" | "it_admin" | "team_lead"
-    parameters: list[NodeParameter] = []
-    depends_on: list[str] = []
-    outputs: dict[str, str] = {}
+    parameters: list[NodeParameter] = Field(default_factory=list)
+    depends_on: list[str] = Field(default_factory=list)
+    outputs: dict[str, str] = Field(default_factory=dict)
 
 
 class WorkflowEdge(BaseModel):
@@ -43,6 +43,6 @@ class Workflow(BaseModel):
     description: str
     team: str
     nodes: list[WorkflowNode]
-    edges: list[WorkflowEdge] = []
-    parameters: dict[str, Any] = {}
+    edges: list[WorkflowEdge] = Field(default_factory=list)
+    parameters: dict[str, Any] = Field(default_factory=dict)
     version: int = 1

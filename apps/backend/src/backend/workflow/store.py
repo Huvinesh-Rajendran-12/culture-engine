@@ -1,6 +1,7 @@
 """File based workflow storage organized by team."""
 
 import json
+import re
 from pathlib import Path
 
 from .schema import Workflow
@@ -29,7 +30,11 @@ class WorkflowStore:
             return None
 
         # Find the latest version
-        matches = sorted(team_dir.glob(f"{workflow_id}-v*.json"), reverse=True)
+        matches = sorted(
+            team_dir.glob(f"{workflow_id}-v*.json"),
+            key=lambda p: int(re.search(r'-v(\d+)\.json$', p.name).group(1)),
+            reverse=True,
+        )
         if not matches:
             return None
 
@@ -44,7 +49,11 @@ class WorkflowStore:
 
         workflows = []
         seen_ids: set[str] = set()
-        for filepath in sorted(team_dir.glob("*.json"), reverse=True):
+        for filepath in sorted(
+            team_dir.glob("*.json"),
+            key=lambda p: int(re.search(r'-v(\d+)\.json$', p.name).group(1)),
+            reverse=True,
+        ):
             data = json.loads(filepath.read_text())
             wf = Workflow.model_validate(data)
             if wf.id not in seen_ids:
