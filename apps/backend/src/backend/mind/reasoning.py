@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+from pi_agent_core import AgentTool
+
 from ..agents.base import run_agent
 from .schema import MemoryEntry, MindProfile
-from .tools.registry import ToolRegistry
 
 
 def build_system_prompt(mind: MindProfile, memories: list[MemoryEntry]) -> str:
@@ -42,7 +43,7 @@ async def run_mind_reasoning(
     workspace_dir: str,
     team: str,
     memories: list[MemoryEntry],
-    tool_registry: ToolRegistry,
+    tools: list[AgentTool],
     allowed_tools: list[str] | None = None,
     max_turns: int = 40,
 ) -> AsyncGenerator[dict, None]:
@@ -53,7 +54,7 @@ async def run_mind_reasoning(
         workspace_dir=workspace_dir,
         team=team,
         allowed_tools=allowed_tools,
-        tools_override=tool_registry.tools(),
+        tools_override=tools,
         max_turns=max_turns,
     ):
         yield event

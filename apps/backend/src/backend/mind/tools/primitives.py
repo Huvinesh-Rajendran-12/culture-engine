@@ -10,7 +10,6 @@ from pi_agent_core import AgentTool, AgentToolResult, AgentToolSchema, TextConte
 
 from ..memory import MemoryManager
 from ..schema import MemoryEntry
-from .runtime_store import RuntimeToolSpec
 
 
 def _text_result(value: str) -> AgentToolResult:
@@ -97,41 +96,3 @@ def create_spawn_agent_tool(
         ),
         execute=spawn_agent_execute,
     )
-
-
-def create_runtime_tools(specs: list[RuntimeToolSpec]) -> list[AgentTool]:
-    tools: list[AgentTool] = []
-
-    for spec in specs:
-        async def runtime_tool_execute(
-            tool_call_id: str,
-            params: dict[str, Any],
-            *,
-            _spec: RuntimeToolSpec = spec,
-            **_: object,
-        ) -> AgentToolResult:
-            payload = {
-                "tool": _spec.name,
-                "input": params.get("input", {}),
-                "response": _spec.response,
-            }
-            return _text_result(json.dumps(payload, indent=2))
-
-        tools.append(
-            AgentTool(
-                name=spec.name,
-                description=spec.description,
-                parameters=AgentToolSchema(
-                    properties={
-                        "input": {
-                            "type": "object",
-                            "description": "Optional structured input for this runtime tool.",
-                        }
-                    },
-                    required=[],
-                ),
-                execute=runtime_tool_execute,
-            )
-        )
-
-    return tools
