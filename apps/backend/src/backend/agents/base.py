@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, AsyncGenerator, Optional
 
-from pi_agent_core import Agent, AgentEvent, AgentOptions, AssistantMessage, Model, TextContent, ToolCall
+from pi_agent_core import Agent, AgentEvent, AgentOptions, AgentTool, AssistantMessage, Model, TextContent, ToolCall
 from ..config import get_settings
 from .anthropic_stream import stream_anthropic
 from .tools import DEFAULT_TOOL_NAMES, create_flowforge_tools
@@ -85,15 +85,20 @@ async def run_agent(
     workspace_dir: str,
     team: str,
     allowed_tools: Optional[list[str]] = None,
+    tools_override: Optional[list[AgentTool]] = None,
     max_turns: int = 50,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run a pi-agent-core agent and yield streaming events."""
     settings = get_settings()
 
-    if allowed_tools is None:
-        allowed_tools = DEFAULT_TOOL_NAMES
+    all_tools = tools_override or create_flowforge_tools(team=team, workspace_dir=workspace_dir)
 
-    all_tools = create_flowforge_tools(team=team, workspace_dir=workspace_dir)
+    if allowed_tools is None:
+        if tools_override is None:
+            allowed_tools = DEFAULT_TOOL_NAMES
+        else:
+            allowed_tools = [tool.name for tool in all_tools]
+
     tool_set = set(allowed_tools)
     tools = [tool for tool in all_tools if tool.name in tool_set]
 

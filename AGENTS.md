@@ -1,169 +1,111 @@
 # AGENTS.md
 
-This document is the **agent-facing map** of the FlowForge monorepo.
-It explains what exists today, where to make changes, and what principles to keep.
+This is the agent-facing map for the `flow-forge/` monorepo.
 
-> Repository root: `flow-forge/`
+The project is currently in a **transition state**:
+1. Legacy FlowForge workflow engine still exists and must keep working.
+2. New **Culture Engine** (Mind/Drone architecture) is being built incrementally.
+
+When in doubt, preserve compatibility and keep changes simple.
 
 ---
 
 ## 1) Monorepo Overview
 
-FlowForge is a two-app repo:
-
-- `apps/backend` — Python/FastAPI + `pi-agent-core` runtime for workflow generation/execution
-- `apps/frontend` — React + Vite web app
-
-There is also:
-
-- `apps/workflows` — persisted workflow JSON artifacts
+- `apps/backend` — FastAPI + `pi-agent-core` runtime
+- `apps/frontend` — React + Vite app (minimal)
+- `apps/workflows` — persisted legacy workflow JSON artifacts
 
 Root scripts (`package.json`):
-
-- `dev:frontend` → run frontend dev server
-- `dev:backend` → run backend API
-- `build:frontend` → build frontend
-
----
-
-## 2) Current Product Shape
-
-FlowForge accepts natural-language workflow requests, has an LLM agent produce/update `workflow.json`, validates it, executes it in a simulator, and self-corrects on failures.
-
-Streaming responses from backend use SSE event objects like:
-
-- `text`
-- `tool_use`
-- `tool_result`
-- `workflow`
-- `execution_report`
-- `workflow_saved`
-- `result`
-- `error`
-- `workspace`
+- `dev:frontend`
+- `dev:backend`
+- `build:frontend`
 
 ---
 
-## 3) Backend Architecture (`apps/backend`)
+## 2) Product Shape (Current)
 
-### API entrypoint
+### A) Culture Engine (new path)
+Main concept: user delegates tasks to a persistent **Mind**.
 
-- `src/backend/main.py`
-  - FastAPI app
-  - `/api/workflows/generate` (SSE)
-  - workflow CRUD endpoints (`list/get/delete`)
+Current backend endpoints:
+- `POST /api/minds`
+- `GET /api/minds/{id}`
+- `POST /api/minds/{id}/delegate` (SSE)
+- `GET /api/minds/{id}/tasks`
+- `GET /api/minds/{id}/tasks/{task_id}`
+- `GET /api/minds/{id}/memory`
 
-### Agent layer
+Phase 1 scope intentionally simplified:
+- single-path orchestration (no automatic sub-agent splitting)
+- file-based memory/task persistence
+- prompt composition from identity + memory
 
-- `src/backend/agents/workflow_agent.py`
-  - **Unified FlowForge agent orchestration**
-  - Builds initial prompt
-  - Calls `run_agent(...)`
-  - Parses/validates `workflow.json`
-  - Executes simulator
-  - Runs fix attempts when parse/execution fails
-
-- `src/backend/agents/base.py`
-  - Generic `run_agent(...)` wrapper over `pi-agent-core`
-  - Model selection + event translation into SSE payloads
-
-- `src/backend/agents/tools.py`
-  - Tool definitions + implementations
-  - Workspace path safety checks
-  - Exposes a **minimal composable toolset**
-
-- `src/backend/agents/anthropic_stream.py`
-  - Anthropic/OpenRouter stream adapter used by backend runtime
-
-- `src/backend/agents/api_catalog.py`
-  - Static searchable catalog of simulated service actions
-
-- `src/backend/agents/kb_search.py`
-  - Search over markdown KB sections (`apps/backend/kb/...`)
-
-### Workflow engine
-
-- `src/backend/workflow/schema.py` — Pydantic workflow DAG schema
-- `src/backend/workflow/executor.py` — topological DAG executor + parameter substitution
-- `src/backend/workflow/report.py` — execution report model + markdown output
-- `src/backend/workflow/store.py` — JSON file persistence per team/version
-
-### Simulator
-
-- `src/backend/simulator/services.py` — fake service APIs
-- `src/backend/simulator/failures.py` — injectable failure rules
-- `src/backend/simulator/state.py` — execution trace/state
-
-### Examples
-
-- `apps/backend/examples/interactive_workflow_generator.py`
-  - interactive CLI (core-style) for debugging/iterating with agent
-- `apps/backend/examples/workflow_example.py`
-  - simple SSE client example against backend endpoint
-
-### Tests
-
-- legacy top-level tests:
-  - `test_workflow_agent.py`
-  - `test_workflow_e2e.py`
-- newer suite:
-  - `tests/test_workflow_engine_core.py`
-  - `tests/test_workflow_generation.py`
-  - `tests/test_integration_openrouter.py`
+### B) Legacy FlowForge (compat path)
+Still exposed and supported:
+- `POST /api/workflows/generate` (SSE)
+- workflow CRUD endpoints
 
 ---
 
-## 4) Frontend Architecture (`apps/frontend`)
+## 3) Backend Architecture (`apps/backend/src/backend`)
 
-Current frontend is intentionally minimal:
+### Stable shared layer
+- `agents/base.py` — shared `run_agent(...)` wrapper over `pi-agent-core`
+- `agents/anthropic_stream.py` — Anthropic/OpenRouter stream adapter
+- SSE event contract (`type` + `content`) must remain compatible
 
-- `src/main.tsx` bootstraps React app
-- `src/App.tsx` renders a placeholder title
+### Culture Engine layer
+- `mind/schema.py` — Mind/Drone/Task/Memory models
+- `mind/identity.py` — Mind creation helpers
+- `mind/memory.py` — persistent memory manager
+- `mind/store.py` — profile + task persistence
+- `mind/reasoning.py` — dynamic system prompt + agent execution
+- `mind/orchestrator.py` — simplified single-run orchestrator
+- `mind/pipeline.py` — delegate flow (load memory → execute → persist)
 
-Build tooling:
-
-- Vite + TypeScript + React 19
-- Scripts: `dev`, `build`, `preview`
-
-No complex state/data layer is present yet.
+### Legacy workflow layer
+- `workflow/` — schema/executor/pipeline/store/report
+- `simulator/` — fake services + failure injection
+- `agents/api_catalog.py`, `agents/kb_search.py`, `agents/tools.py`
 
 ---
 
-## 5) Tooling Philosophy (Important)
+## 4) Simplification Rules (Important)
 
-FlowForge currently favors a **minimal agent toolset** so the model learns to compose primitives.
+1. Prefer the smallest vertical slice that works.
+2. Avoid speculative abstractions.
+3. Keep orchestration explicit; avoid hidden magic.
+4. Create directories only on write paths (not on reads).
+5. Keep temporary workspace lifecycle automatic and bounded.
+6. Preserve backward compatibility unless explicitly removed.
 
-Source of truth:
+---
 
-- `src/backend/agents/tools.py` → `DEFAULT_TOOL_NAMES`
+## 5) Tooling Philosophy
 
-Current default tools:
-
-1. `read_file`
-2. `write_file`
-3. `edit_file`
-4. `search_apis`
-5. `search_knowledge_base`
+Current shared tool allowlist remains in:
+- `agents/tools.py` → `DEFAULT_TOOL_NAMES`
 
 Guideline:
+- composition/prompting first,
+- new tools only when necessary.
 
-- Prefer adding capability through composition/prompting first.
-- Add new tools only when composition is insufficient.
+For Culture Engine Phase 2, build dynamic tooling incrementally:
+1. registry first,
+2. core primitives,
+3. runtime extension.
 
 ---
 
 ## 6) Config & Environment
 
 Backend env (`apps/backend/.env`):
-
 - `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY`
-- optional Anthropic-compatible endpoint:
-  - `ANTHROPIC_BASE_URL`
-  - `ANTHROPIC_AUTH_TOKEN`
+- optional `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`
 - `DEFAULT_MODEL`
 
 Run backend:
-
 ```bash
 cd apps/backend
 uv sync
@@ -171,7 +113,6 @@ uv run uvicorn backend.main:app --reload --port 8000
 ```
 
 Run frontend:
-
 ```bash
 cd apps/frontend
 npm install
@@ -180,30 +121,19 @@ npm run dev
 
 ---
 
-## 7) Agent/Contributor Conventions
+## 7) Contributor Conventions
 
-When editing FlowForge:
-
-1. Keep tool names in snake_case and aligned with `pi-agent-core` examples.
-2. Keep `DEFAULT_TOOL_NAMES` as central allowlist source.
-3. Maintain workspace path safety (`_resolve_path`) for file tools.
-4. Preserve SSE message compatibility (`type` + `content` objects).
-5. Validate workflow JSON with schema before execution.
-6. Keep execution self-correction loop intact unless intentionally redesigning behavior.
+- Keep tool names in snake_case.
+- Maintain workspace path safety for file tools.
+- Preserve SSE message compatibility.
+- Keep docs aligned with implementation in `src/backend/`.
+- Mark legacy codepaths clearly with `LEGACY` comments/docstrings.
 
 ---
 
-## 8) Known Drift / Documentation Notes
+## 8) Near-term Plan
 
-Some older docs in `apps/backend/README.md` and `QUICKSTART.md` mention earlier "code generation" phases and older tool names.
-
-**Source of truth is implementation under `src/backend/`** (especially `agents/workflow_agent.py` and `agents/tools.py`).
-
----
-
-## 9) Suggested Next Simplifications
-
-- Centralize model-id resolution for API + examples in one module
-- Reduce duplicated tests / clarify which test suite is canonical
-- Update stale backend docs to match unified-agent architecture
-- Add frontend workflow streaming UI once backend contract is stable
+1. Finalize Phase 1 polish (done/small fixes only).
+2. Build Phase 2 dynamic tool system (minimal registry + primitives).
+3. Wire tools into Mind pipeline.
+4. Add focused tests for Mind core and delegation pipeline.

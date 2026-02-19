@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 
 from ..agents.base import run_agent
-from ..agents.tools import DEFAULT_TOOL_NAMES
 from .schema import MemoryEntry, MindProfile
+from .tools.registry import ToolRegistry
 
 
 def build_system_prompt(mind: MindProfile, memories: list[MemoryEntry]) -> str:
@@ -42,17 +42,18 @@ async def run_mind_reasoning(
     workspace_dir: str,
     team: str,
     memories: list[MemoryEntry],
+    tool_registry: ToolRegistry,
     allowed_tools: list[str] | None = None,
     max_turns: int = 40,
 ) -> AsyncGenerator[dict, None]:
     """Execute one Mind reasoning run and stream SSE-compatible events."""
-    tools = allowed_tools or DEFAULT_TOOL_NAMES
     async for event in run_agent(
         prompt=task,
         system_prompt=build_system_prompt(mind, memories),
         workspace_dir=workspace_dir,
         team=team,
-        allowed_tools=tools,
+        allowed_tools=allowed_tools,
+        tools_override=tool_registry.tools(),
         max_turns=max_turns,
     ):
         yield event

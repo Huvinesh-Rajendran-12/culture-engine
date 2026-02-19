@@ -43,6 +43,7 @@ async def delegate_to_mind(
             task=description,
             team=team,
             memories=memories,
+            memory_manager=memory_manager,
         ):
             if event.get("type") == "text" and isinstance(event.get("content"), str):
                 latest_text = event["content"]
