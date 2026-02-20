@@ -43,8 +43,8 @@ uv sync
 
 # Start the server
 echo -e "${GREEN}Starting FastAPI server...${NC}"
-echo "API: http://localhost:8000"
-echo "Docs: http://localhost:8000/docs"
+echo "API: http://localhost:8100"
+echo "Docs: http://localhost:8100/docs"
 echo ""
 
-uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8100

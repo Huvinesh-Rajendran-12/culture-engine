@@ -117,7 +117,7 @@ Run backend:
 ```bash
 cd apps/backend
 uv sync
-uv run uvicorn backend.main:app --reload --port 8000
+uv run uvicorn backend.main:app --reload --port 8100
 ```
 
 Run frontend:

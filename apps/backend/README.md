@@ -33,11 +33,11 @@ Optional:
 ## Run API
 
 ```bash
-uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8100
 ```
 
-- API: `http://localhost:8000`
-- Swagger: `http://localhost:8000/docs`
+- API: `http://localhost:8100`
+- Swagger: `http://localhost:8100/docs`
 
 ## Endpoints
 

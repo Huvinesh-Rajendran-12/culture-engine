@@ -30,7 +30,7 @@ Today, the repo contains:
 cd apps/backend
 uv sync
 cp .env.example .env
-uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8100
 ```
 
 ### 2) Run frontend
@@ -41,8 +41,9 @@ npm install
 npm run dev
 ```
 
-- Backend: `http://localhost:8000`
-- Swagger: `http://localhost:8000/docs`
+- Frontend: `http://localhost:5174`
+- Backend: `http://localhost:8100`
+- Swagger: `http://localhost:8100/docs`
 
 ---
 

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import "./App.css";
 
 type Mind = {
   id: string;
@@ -181,53 +182,63 @@ export function App() {
   }
 
   return (
-    <div style={{ fontFamily: "sans-serif", padding: 16 }}>
-      <h1>Culture Engine</h1>
-      <p style={{ color: "#666" }}>Create/select a Mind, delegate work, inspect live events and traces.</p>
+    <div className="app">
+      <header className="hero">
+        <h1>Culture Engine</h1>
+        <p className="subtitle">A renaissance-inspired atelier for your autonomous Mind and delegated craftwork.</p>
+      </header>
 
-      <form onSubmit={onCreateMind} style={{ marginBottom: 12 }}>
-        <input value={newMindName} onChange={(e) => setNewMindName(e.target.value)} placeholder="Mind name" />
-        <button type="submit" style={{ marginLeft: 8 }}>
-          Create Mind
-        </button>
-      </form>
+      <div className="controls">
+        <section className="card">
+          <h3>Create Mind</h3>
+          <form onSubmit={onCreateMind} className="row">
+            <input value={newMindName} onChange={(e) => setNewMindName(e.target.value)} placeholder="Mind name" />
+            <button type="submit">Create</button>
+          </form>
+        </section>
 
-      <div style={{ marginBottom: 12 }}>
-        <label>Selected Mind: </label>
-        <select value={selectedMindId} onChange={(e) => setSelectedMindId(e.target.value)}>
-          <option value="">-- choose --</option>
-          {minds.map((mind) => (
-            <option key={mind.id} value={mind.id}>
-              {mind.name} ({mind.id})
-            </option>
-          ))}
-        </select>
-        {selectedMind ? <span style={{ marginLeft: 8, color: "#666" }}>personality: {selectedMind.personality || "n/a"}</span> : null}
+        <section className="card">
+          <h3>Current Mind</h3>
+          <div className="row">
+            <select value={selectedMindId} onChange={(e) => setSelectedMindId(e.target.value)}>
+              <option value="">-- choose --</option>
+              {minds.map((mind) => (
+                <option key={mind.id} value={mind.id}>
+                  {mind.name} ({mind.id})
+                </option>
+              ))}
+            </select>
+            {selectedMind ? <span className="muted">personality: {selectedMind.personality || "n/a"}</span> : null}
+          </div>
+        </section>
       </div>
 
-      <form onSubmit={onDelegate} style={{ marginBottom: 16 }}>
-        <input
-          value={taskText}
-          onChange={(e) => setTaskText(e.target.value)}
-          placeholder="Delegate a task"
-          style={{ width: 520 }}
-        />
-        <button type="submit" disabled={!selectedMindId || busy} style={{ marginLeft: 8 }}>
-          {busy ? "Running..." : "Delegate"}
-        </button>
-      </form>
+      <section className="card" style={{ marginBottom: 14 }}>
+        <h3>Delegate a Task</h3>
+        <form onSubmit={onDelegate} className="row">
+          <input
+            className="wide"
+            value={taskText}
+            onChange={(e) => setTaskText(e.target.value)}
+            placeholder="Delegate a task"
+          />
+          <button type="submit" disabled={!selectedMindId || busy}>
+            {busy ? "In Progress..." : "Delegate"}
+          </button>
+        </form>
+      </section>
 
-      {error ? <div style={{ color: "crimson", marginBottom: 12 }}>{error}</div> : null}
+      {error ? <div className="error">{error}</div> : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <section>
-          <h3>Live Stream Events</h3>
-          <div style={{ border: "1px solid #ddd", padding: 8, maxHeight: 320, overflow: "auto", fontSize: 12 }}>
+      <div className="grid">
+        <section className="card">
+          <h3>Live Event Chronicle</h3>
+          <div className="panel">
             {events.length === 0 ? (
-              <div style={{ color: "#777" }}>No events yet.</div>
+              <div className="muted">No events yet.</div>
             ) : (
               events.map((evt, idx) => (
-                <pre key={`${evt.type}-${idx}`} style={{ margin: 0, marginBottom: 8, whiteSpace: "pre-wrap" }}>
+                <pre key={`${evt.type}-${idx}`}>
                   [{evt.type}] {JSON.stringify(evt.content)}
                 </pre>
               ))
@@ -235,18 +246,19 @@ export function App() {
           </div>
         </section>
 
-        <section>
-          <h3>Task History</h3>
-          <div style={{ border: "1px solid #ddd", padding: 8, maxHeight: 320, overflow: "auto", fontSize: 12 }}>
+        <section className="card">
+          <h3>Task Ledger</h3>
+          <div className="panel">
             {tasks.length === 0 ? (
-              <div style={{ color: "#777" }}>No tasks yet.</div>
+              <div className="muted">No tasks yet.</div>
             ) : (
               tasks.map((task) => (
-                <div key={task.id} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #eee" }}>
+                <div key={task.id} className="task-row">
                   <div>
-                    <strong>{task.status}</strong> · {task.description}
+                    <span className="badge">{task.status}</span>
+                    {task.description}
                   </div>
-                  <button onClick={() => void loadTrace(task.id)} style={{ marginTop: 4 }}>
+                  <button onClick={() => void loadTrace(task.id)} style={{ marginTop: 6 }}>
                     View trace
                   </button>
                 </div>
@@ -256,14 +268,14 @@ export function App() {
         </section>
       </div>
 
-      <section style={{ marginTop: 16 }}>
-        <h3>Selected Task Trace {selectedTaskId ? `(${selectedTaskId})` : ""}</h3>
-        <div style={{ border: "1px solid #ddd", padding: 8, maxHeight: 280, overflow: "auto", fontSize: 12 }}>
+      <section className="card" style={{ marginTop: 14 }}>
+        <h3>Selected Trace {selectedTaskId ? `(${selectedTaskId})` : ""}</h3>
+        <div className="panel trace-panel">
           {!trace ? (
-            <div style={{ color: "#777" }}>Pick a task to inspect full trace.</div>
+            <div className="muted">Pick a task to inspect full trace.</div>
           ) : (
             trace.events.map((evt, idx) => (
-              <pre key={`${evt.type}-${idx}`} style={{ margin: 0, marginBottom: 8, whiteSpace: "pre-wrap" }}>
+              <pre key={`${evt.type}-${idx}`}>
                 {evt.timestamp} [{evt.type}] {JSON.stringify(evt.content)}
               </pre>
             ))

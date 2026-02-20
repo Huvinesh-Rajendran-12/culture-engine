@@ -29,12 +29,12 @@ DEFAULT_MODEL=haiku
 ## 2) Start Backend
 
 ```bash
-uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8100
 ```
 
 Open docs:
-- Swagger: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+- Swagger: `http://localhost:8100/docs`
+- ReDoc: `http://localhost:8100/redoc`
 
 ---
 
@@ -43,7 +43,7 @@ Open docs:
 ### Create a Mind
 
 ```bash
-curl -X POST http://localhost:8000/api/minds \
+curl -X POST http://localhost:8100/api/minds \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Orbit",
@@ -55,7 +55,7 @@ curl -X POST http://localhost:8000/api/minds \
 ### Delegate task (SSE)
 
 ```bash
-curl -N -X POST http://localhost:8000/api/minds/<mind_id>/delegate \
+curl -N -X POST http://localhost:8100/api/minds/<mind_id>/delegate \
   -H "Content-Type: application/json" \
   -d '{
     "description": "Summarize this week\'s engineering updates and draft a stakeholder note",
@@ -74,10 +74,10 @@ Common event types:
 ### Inspect persisted state
 
 ```bash
-curl http://localhost:8000/api/minds
-curl http://localhost:8000/api/minds/<mind_id>/tasks
-curl http://localhost:8000/api/minds/<mind_id>/memory
-curl http://localhost:8000/api/minds/<mind_id>/tasks/<task_id>/trace
+curl http://localhost:8100/api/minds
+curl http://localhost:8100/api/minds/<mind_id>/tasks
+curl http://localhost:8100/api/minds/<mind_id>/memory
+curl http://localhost:8100/api/minds/<mind_id>/tasks/<task_id>/trace
 ```
 
 ---
@@ -85,7 +85,7 @@ curl http://localhost:8000/api/minds/<mind_id>/tasks/<task_id>/trace
 ## 4) Legacy workflow path (compatibility)
 
 ```bash
-curl -N -X POST http://localhost:8000/api/workflows/generate \
+curl -N -X POST http://localhost:8100/api/workflows/generate \
   -H "Content-Type: application/json" \
   -d '{
     "description": "Create an onboarding workflow for a new engineering hire",
