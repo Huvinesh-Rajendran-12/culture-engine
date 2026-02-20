@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .mind.identity import create_mind_identity
 from .mind.memory import MemoryManager
@@ -29,6 +30,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; connect-src 'self'"
+        )
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 WORKFLOWS_DIR = ROOT_DIR / "workflows"

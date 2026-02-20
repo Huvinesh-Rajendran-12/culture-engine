@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Flow Forge — Culture Engine</title>
+    <!-- CSP: 'unsafe-inline' required for Vite HMR in dev; tighten to nonces/hashes for prod builds.
+         ws: covers Vite HMR websocket. data: covers SVG data-URI backgrounds in CSS.
+         Fonts are self-hosted via @fontsource — no external font origins needed. -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline';
+      style-src 'self' 'unsafe-inline';
+      font-src 'self';
+      connect-src 'self' ws:;
+      img-src 'self' data:;
+      object-src 'none';
+      base-uri 'self'
+    " />
   </head>
   <body>
     <div id="root"></div>

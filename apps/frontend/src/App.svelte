@@ -146,8 +146,13 @@
           buffer = buffer.slice(split + 2);
           for (const line of chunk.split("\n")) {
             if (!line.startsWith("data: ")) continue;
-            const event = JSON.parse(line.slice(6)) as StreamEvent;
-            events = [...events, event];
+            let event: StreamEvent;
+            try {
+              event = JSON.parse(line.slice(6)) as StreamEvent;
+            } catch {
+              continue; // skip malformed lines, keep stream alive
+            }
+            events = [...events, event].slice(-1000);
           }
           split = buffer.indexOf("\n\n");
         }
@@ -216,7 +221,7 @@
   </div>
 
   <!-- ── Commission ── -->
-  <section class="card" style="margin-bottom: 16px">
+  <section class="card mb-card">
     <h3>Commission a Task</h3>
     <form onsubmit={onDelegate} class="row">
       <input class="wide" bind:value={taskText} placeholder="Describe the commission…" />
@@ -248,7 +253,7 @@
           <div class="muted">Awaiting transmissions…</div>
         {:else}
           {#each events as evt, idx (idx)}
-            <pre style="animation-delay: {Math.min(idx * 25, 300)}ms"><span class="evt-tag" data-type={evt.type}>{evt.type}</span>{formatContent(evt.content)}</pre>
+            <pre style:animation-delay="{Math.min(idx * 25, 300)}ms"><span class="evt-tag" data-type={evt.type}>{evt.type}</span>{formatContent(evt.content)}</pre>
           {/each}
         {/if}
       </div>
@@ -264,10 +269,10 @@
             <div class="task-row">
               <div class="task-meta">
                 <span class="badge" data-status={task.status}>{task.status}</span>
-                <span class="muted" style="font-size: 0.68rem">{task.id.slice(0, 8)}</span>
+                <span class="muted task-id">{task.id.slice(0, 8)}</span>
               </div>
               <div class="task-desc">{task.description}</div>
-              <button class="btn-sm" onclick={() => void loadTrace(task.id)} style="align-self: flex-start">
+              <button class="btn-sm btn-top" onclick={() => void loadTrace(task.id)}>
                 Inspect Trace
               </button>
             </div>
@@ -278,7 +283,7 @@
   </div>
 
   <!-- ── Trace Codex ── -->
-  <section class="card" style="margin-top: 16px">
+  <section class="card mt-card">
     <h3>Trace Codex{selectedTaskId ? ` · ${selectedTaskId.slice(0, 8)}` : ""}</h3>
     <div class="panel trace-panel">
       {#if !trace}

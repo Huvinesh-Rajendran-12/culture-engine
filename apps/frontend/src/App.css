@@ -4,7 +4,6 @@
    "If Leonardo da Vinci had access to holographic displays."
    ================================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Cinzel:wght@400;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Share+Tech+Mono&display=swap');
 
 /* ——— Design Tokens ——— */
 :root {
@@ -39,7 +38,6 @@
   --error-border: #5a1010;
   --error-text:   #d94a2a;
   --ok-color:     #6ab558;
-  --run-color:    var(--gold-shine);
 
   /* Typography */
   --font-display: 'Cinzel Decorative', 'Palatino Linotype', serif;
@@ -60,6 +58,7 @@
 }
 
 /* ——— Reset ——— */
+html { margin: 0; padding: 0; }
 *, *::before, *::after { box-sizing: border-box; }
 
 /* ——— Body & Canvas ——— */
@@ -86,7 +85,7 @@ body::after {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 9999;
+  z-index: 1;
   opacity: 0.028;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-repeat: repeat;
@@ -291,6 +290,10 @@ h3::before {
   gap: var(--sp-md);
 }
 
+@media (min-width: 768px) {
+  .controls { grid-template-columns: 1fr 1fr; }
+}
+
 @media (min-width: 960px) {
   .controls { grid-template-columns: 1fr 1fr; }
   .grid     { grid-template-columns: 1fr 1fr; }
@@ -330,6 +333,7 @@ input:focus, select:focus {
 
 select {
   cursor: pointer;
+  -moz-appearance: none;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23b88228'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -428,12 +432,17 @@ button.btn-sm {
   scrollbar-color: var(--gold-ember) var(--chamber);
 }
 
-.panel::-webkit-scrollbar { width: 5px; }
+.panel::-webkit-scrollbar { width: 6px; }
 .panel::-webkit-scrollbar-track { background: var(--chamber); }
 .panel::-webkit-scrollbar-thumb { background: var(--gold-ember); border-radius: 2px; }
 .panel::-webkit-scrollbar-thumb:hover { background: var(--gold-mid); }
 
 .trace-panel { max-height: 280px; }
+
+@media (max-height: 480px) {
+  .panel       { max-height: 160px; }
+  .trace-panel { max-height: 140px; }
+}
 
 /* ——— Pre / Event blocks ——— */
 pre {
@@ -582,30 +591,12 @@ pre {
   40%            { transform: scale(1);    opacity: 1; }
 }
 
-/* ——— Ornamental divider ——— */
-.ornament-row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-sm);
-  color: var(--gold-ember);
-  margin: var(--sp-sm) 0;
-  font-size: 0.7rem;
-}
 
-.ornament-row::before,
-.ornament-row::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-}
-
-.ornament-row::before {
-  background: linear-gradient(90deg, transparent, var(--gold-ember));
-}
-
-.ornament-row::after {
-  background: linear-gradient(270deg, transparent, var(--gold-ember));
-}
+/* ——— Layout helpers ——— */
+.mb-card  { margin-bottom: var(--sp-md); }
+.mt-card  { margin-top:    var(--sp-md); }
+.task-id  { font-size: 0.68rem; }
+.btn-top  { align-self: flex-start; }
 
 /* ——— Timestamp in trace ——— */
 .trace-ts {
