@@ -65,10 +65,10 @@ class GoogleConnector(BaseConnector):
         http_client: httpx.AsyncClient,
     ) -> GoogleConnector:
         sa_json = settings.google_service_account_json or "{}"
-        try:
-            sa_info = json.loads(sa_json)
-        except json.JSONDecodeError:
-            sa_info = {}
+        # Let JSONDecodeError propagate — _instantiate_connector catches it and
+        # returns None, so create_service_layer falls back to the simulator
+        # instead of routing to a broken connector with empty credentials.
+        sa_info = json.loads(sa_json)
         return cls(
             sa_info,
             settings.google_admin_email or "",
