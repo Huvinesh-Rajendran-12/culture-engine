@@ -100,7 +100,7 @@ class GoogleConnector(BaseConnector):
             json={
                 "primaryEmail": email,
                 "name": {"givenName": given_name, "familyName": family_name},
-                "password": _temp_password(employee_name),
+                "password": _temp_password(),
                 "changePasswordAtNextLogin": True,
             },
         )
