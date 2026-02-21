@@ -234,6 +234,7 @@ class GoogleConnector(BaseConnector):
 
 def _temp_password() -> str:
     """Generate a secure random temporary password for a new user."""
-    import secrets, string
+    import secrets
+    import string
     alphabet = string.ascii_letters + string.digits + "!@#$%"
     return "".join(secrets.choice(alphabet) for _ in range(12))
