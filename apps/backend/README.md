@@ -77,18 +77,17 @@ Notes:
 
 ## Examples
 
-- `examples/workflow_example.py` — legacy workflow SSE client
-- `examples/interactive_workflow_generator.py` — interactive CLI debugging flow
+- `examples/mind_delegate_example.py` — create a Mind and stream delegation SSE events
 
 ## Tests
 
-Default test run:
+Mind unit tests:
 
 ```bash
-uv run python -m pytest
+uv run python -m pytest tests/test_mind_api.py tests/test_mind_persistence.py
 ```
 
-OpenRouter integration tests (opt-in):
+Mind OpenRouter integration test (opt-in):
 
 ```bash
 export OPENROUTER_API_KEY=your_key

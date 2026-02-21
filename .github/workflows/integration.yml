@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   openrouter:
-    name: openrouter-integration-tests
+    name: mind-openrouter-integration
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -47,5 +47,5 @@ jobs:
             exit 1
           fi
 
-      - name: Run OpenRouter integration tests
+      - name: Run Mind OpenRouter integration test
         run: uv run python -m pytest tests/test_integration_mind_openrouter.py

@@ -11,9 +11,8 @@ cd apps/backend
 
 uv sync                                                    # Install/update dependencies
 uv run uvicorn backend.main:app --reload --port 8000       # Start dev server
-uv run pytest                                              # Run all tests
-uv run pytest tests/test_workflow_engine_core.py           # Run a single test file
-uv run python test_workflow_agent.py                       # Run deterministic tests (no API key needed)
+uv run pytest tests/test_mind_api.py tests/test_mind_persistence.py  # Run Mind unit tests
+uv run pytest tests/test_integration_mind_openrouter.py    # Run Mind OpenRouter integration test (requires env)
 ```
 
 ### Frontend
@@ -85,21 +84,20 @@ If a comment is not valid, respond in the PR with a concise technical rationale 
 
 ## Architecture
 
-FlowForge is a monorepo with a FastAPI backend and a React frontend. The core feature is AI-driven workflow generation: the user describes a process in natural language, the agent generates a JSON DAG, the system validates and simulates it, then persists successful workflows.
+FlowForge is a monorepo with a FastAPI backend and a frontend client. The current focus is Mind-driven delegation: the user creates a persistent Mind, delegates tasks over SSE, and the system persists tasks, traces, and memory for iterative work.
 
 ### Request Flow
 
 ```
-POST /api/workflows/generate (SSE stream)
-  └─ pipeline.generate_workflow()
-       ├─ run_agent() → Claude writes workflow.json to temp workspace
-       ├─ Parse JSON → validate against Workflow Pydantic model
-       ├─ WorkflowExecutor.execute() → simulate against service stubs
-       ├─ Self-correct on parse/execution failures (up to MAX_FIX_ATTEMPTS=2)
-       └─ WorkflowStore.save() → persist to apps/workflows/{team}/
+POST /api/minds/{mind_id}/delegate (SSE stream)
+  └─ mind.pipeline.delegate_to_mind()
+       ├─ load Mind profile + memory from SQLite
+       ├─ compose per-run tools (shared tools + memory + spawn_agent)
+       ├─ run_agent() streams tool/text/result events
+       └─ persist task status, trace events, and memory entries
 ```
 
-All responses are SSE events with shape `{"type": "...", "content": ...}`. Types: `text`, `tool_use`, `tool_result`, `workflow`, `execution_report`, `workflow_saved`, `result`, `error`, `workspace`.
+All responses are SSE events with shape `{"type": "...", "content": ...}`. Common Mind event types: `task_started`, `tool_registry`, `tool_use`, `tool_result`, `text`, `result`, `task_finished`, `error`.
 
 ### Key Packages (`src/backend/`)
 
@@ -107,40 +105,27 @@ All responses are SSE events with shape `{"type": "...", "content": ...}`. Types
 |---|---|
 | `agents/base.py` | `run_agent()` — wraps `pi-agent-core`, translates events to SSE dicts |
 | `agents/tools.py` | `DEFAULT_TOOL_NAMES` — central allowlist; file read/write/edit, run_command, search_apis, search_knowledge_base |
-| `agents/api_catalog.py` | Searchable catalog of simulated service actions (HR, Google, Slack, Jira, GitHub) |
+| `agents/api_catalog.py` | Searchable catalog of service actions |
 | `agents/kb_search.py` | Keyword search over KB markdown sections |
-| `workflow/schema.py` | `Workflow`, `WorkflowNode`, `WorkflowEdge`, `NodeParameter` Pydantic models |
-| `workflow/pipeline.py` | `generate_workflow()` — full orchestration loop with self-correction |
-| `workflow/executor.py` | `WorkflowExecutor` — topological sort DAG runner with failure injection |
-| `workflow/report.py` | `ExecutionReport` — trace + metrics + markdown output |
-| `workflow/store.py` | `WorkflowStore` — file-based CRUD under `apps/workflows/{team}/` |
-| `simulator/state.py` | `SimulatorState` (mutable shared state), `ExecutionTrace`, `TraceStep` |
-| `simulator/services.py` | In-memory stubs: `HRService`, `GoogleService`, `SlackService`, `JiraService`, `GitHubService` |
-| `simulator/failures.py` | `FailureConfig` + `FailureRule` for probabilistic failure injection |
+| `mind/schema.py` | `MindProfile`, `Task`, `MemoryEntry` models |
+| `mind/pipeline.py` | `delegate_to_mind()` — task run orchestration and persistence |
+| `mind/reasoning.py` | Mind system prompt composition + agent execution |
+| `mind/tools/factory.py` | Per-run tool assembly for Mind execution |
+| `mind/tools/primitives.py` | `memory_save`, `memory_search`, `spawn_agent` tools |
+| `mind/store.py` | SQLite persistence for Mind profiles, tasks, and traces |
+| `mind/memory.py` | SQLite FTS-backed memory retrieval and storage |
 | `connectors/__init__.py` | `create_service_layer()` / `close_service_layer()` — hybrid real+simulator routing; stashes `_http_client` for cleanup |
 | `connectors/registry.py` | `ConnectorRegistry` — discovers built-in + custom connectors; falls back to custom file if built-in fails |
 | `connectors/builder/` | Agent-driven connector generation + two-stage validation (AST + subprocess, enforces `@classmethod`) |
 
-### Workflow Data Model
+### Mind Data Model
 
-```
-Workflow
-├── id, name, description, team, version
-├── parameters: dict[str, Any]          # global inputs, e.g. {"employee_name": "Alice"}
-├── nodes: list[WorkflowNode]
-│   ├── id, name, description
-│   ├── service: "hr"|"google"|"slack"|"jira"|"github"
-│   ├── action: str                     # must match an ApiEntry in api_catalog.py
-│   ├── actor: str                      # responsible role
-│   ├── depends_on: list[str]           # upstream node IDs (defines DAG edges)
-│   ├── parameters: list[NodeParameter] # values support template syntax (see below)
-│   └── outputs: dict[str, str]         # output key → description
-└── edges: list[WorkflowEdge]           # optional explicit edge metadata
-```
+Mind runs persist three linked records:
 
-**Templating in `NodeParameter.value`:**
-- `{{param_name}}` — resolves to `workflow.parameters[param_name]`
-- `{{node_id.output_key}}` — resolves to an upstream node's output at runtime
+- `MindProfile` (identity + preferences + system prompt)
+- `Task` (description, status, result summary, timestamps)
+- `Task Trace` (SSE event stream captured per task)
+- `MemoryEntry` (task results and explicit memory saves, searchable with FTS)
 
 ### Knowledge Base
 
@@ -169,13 +154,16 @@ Workflow
 
 ### Testing
 
-- `test_workflow_agent.py` — deterministic tests for schema, simulator, executor, store (no API key)
-- `tests/test_workflow_engine_core.py` — engine unit tests
-- `tests/test_workflow_generation.py` — requires API key (agent generation)
+- `tests/test_mind_api.py` — Mind API + SSE + persistence behavior
+- `tests/test_mind_persistence.py` — SQLite store/memory persistence behavior
 - `tests/test_integration_mind_openrouter.py` — OpenRouter integration for Mind delegation
 
-Tests 1–4 in `test_workflow_agent.py` run without any API key and are the fastest sanity check.
+Fastest sanity check:
+
+```bash
+uv run python -m pytest tests/test_mind_api.py tests/test_mind_persistence.py
+```
 
 ### Frontend
 
-Currently a React 19 + Vite + TypeScript scaffold at `apps/frontend/`. The planned next phase is an SSE streaming UI that consumes `/api/workflows/generate` and visualizes the DAG.
+Currently a frontend scaffold at `apps/frontend/`. The planned next phase is an SSE streaming UI centered on `/api/minds/{mind_id}/delegate` with task and memory inspection.

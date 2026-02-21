@@ -11,7 +11,7 @@ Mark these as required:
 
 Do not mark this one required unless you always provide external secrets on PRs:
 
-- `Integration / openrouter-integration-tests`
+- `Integration / mind-openrouter-integration`
 
 ## Recommended pull request rules
 
