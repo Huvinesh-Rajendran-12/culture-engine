@@ -55,10 +55,12 @@ def validate_connector_file(
     if not has_service_name:
         errors.append(f"Class '{expected_class}' is missing a 'service_name' class attribute")
 
-    # Collect all method names defined directly in the class
+    # Collect method names defined *directly* in the class body (not nested inside other methods).
+    # Using class_node.body (direct children) instead of ast.walk() avoids false positives
+    # from inner functions defined inside other methods.
     method_names = {
         n.name
-        for n in ast.walk(class_node)
+        for n in class_node.body
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
 
@@ -70,7 +72,7 @@ def validate_connector_file(
     # Check mandatory classmethods — must exist and be decorated with @classmethod
     classmethod_names = {
         n.name
-        for n in ast.walk(class_node)
+        for n in class_node.body
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
         and any(
             isinstance(d, ast.Name) and d.id == "classmethod"
