@@ -48,4 +48,4 @@ jobs:
           fi
 
       - name: Run OpenRouter integration tests
-        run: uv run python -m pytest tests/test_integration_openrouter.py tests/test_integration_mind_openrouter.py
+        run: uv run python -m pytest tests/test_integration_mind_openrouter.py

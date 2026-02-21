@@ -94,7 +94,7 @@ OpenRouter integration tests (opt-in):
 export OPENROUTER_API_KEY=your_key
 export RUN_OPENROUTER_INTEGRATION=1
 export ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1
-uv run python -m pytest tests/test_integration_openrouter.py tests/test_integration_mind_openrouter.py
+uv run python -m pytest tests/test_integration_mind_openrouter.py
 ```
 
 Without the integration env vars, OpenRouter tests are skipped by design.

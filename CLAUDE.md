@@ -172,7 +172,7 @@ Workflow
 - `test_workflow_agent.py` — deterministic tests for schema, simulator, executor, store (no API key)
 - `tests/test_workflow_engine_core.py` — engine unit tests
 - `tests/test_workflow_generation.py` — requires API key (agent generation)
-- `tests/test_integration_openrouter.py` — OpenRouter integration
+- `tests/test_integration_mind_openrouter.py` — OpenRouter integration for Mind delegation
 
 Tests 1–4 in `test_workflow_agent.py` run without any API key and are the fastest sanity check.
 
