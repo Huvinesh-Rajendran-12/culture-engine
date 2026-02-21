@@ -86,9 +86,7 @@ def validate_connector_file(
                 "import importlib.util, sys; "
                 f"spec = importlib.util.spec_from_file_location('_validate', '{path}'); "
                 "mod = importlib.util.module_from_spec(spec); "
-                "sys.modules[spec.name] = mod"
-                # Note: we intentionally do NOT call exec_module() here — we only
-                # want to catch syntax/import errors visible at module creation time.
+                "spec.loader.exec_module(mod)"
             ),
         ],
         capture_output=True,
