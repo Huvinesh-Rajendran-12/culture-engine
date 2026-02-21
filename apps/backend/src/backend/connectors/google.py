@@ -216,14 +216,14 @@ class GoogleConnector(BaseConnector):
         assertion = jwt.encode(claim, private_key, algorithm="RS256")
 
         # Synchronous token fetch (called from run_in_executor)
-        import urllib.request
-        data = urllib.parse.urlencode({
+        import httpx
+        data = {
             "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
             "assertion": assertion,
-        }).encode()
-        req = urllib.request.Request(_TOKEN_URL, data=data, method="POST")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            body = json.loads(resp.read())
+        }
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(_TOKEN_URL, data=data)
+            body = resp.json()
         if "access_token" not in body:
             raise ServiceError(f"Failed to obtain Google access token: {body}", "auth_error")
         self._cached_token = body["access_token"]
