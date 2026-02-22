@@ -6,9 +6,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from ..simulator.services import ServiceError
-from ..simulator.state import ExecutionTrace
 from .base import BaseConnector
+from .contracts import ExecutionTrace, ServiceError
 from .registry import register
 
 if TYPE_CHECKING:
@@ -120,11 +119,15 @@ class HrConnector(BaseConnector):
         if resp.status_code in (200, 201, 204):
             return
         if resp.status_code == 401:
-            raise ServiceError("HR API authentication failed — check HR_API_KEY", "auth_error")
+            raise ServiceError(
+                "HR API authentication failed — check HR_API_KEY", "auth_error"
+            )
         if resp.status_code == 403:
             raise ServiceError("HR API permission denied", "permission_denied")
         if resp.status_code == 404:
-            raise ServiceError("HR API endpoint not found — check HR_BASE_URL", "not_found")
+            raise ServiceError(
+                "HR API endpoint not found — check HR_BASE_URL", "not_found"
+            )
         if resp.status_code == 409:
             raise ServiceError("HR record already exists", "already_exists")
         body = resp.text[:300]

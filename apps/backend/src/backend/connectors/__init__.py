@@ -1,9 +1,9 @@
-"""Connector package: real API connectors with transparent simulator fallback.
+"""Connector package: real API connector discovery and lifecycle.
 
 Usage:
     from backend.connectors import create_service_layer, close_service_layer
 
-    state, trace, services, failure_config = create_service_layer(settings)
+    state, trace, services = create_service_layer(settings)
     try:
         ...
     finally:
@@ -16,10 +16,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from ..simulator import create_simulator
-from ..simulator.failures import FailureConfig
-from ..simulator.state import ExecutionTrace, SimulatorState
 from .base import BaseConnector
+from .contracts import ExecutionTrace, ServiceLayerState
 from .registry import ConnectorRegistry
 
 if TYPE_CHECKING:
@@ -31,46 +29,31 @@ from . import github, google, hr, jira, slack  # noqa: E402, F401
 
 def create_service_layer(
     settings: Settings,
-    failure_config: FailureConfig | None = None,
-) -> tuple[SimulatorState, ExecutionTrace, dict[str, Any], FailureConfig | None]:
-    """Create a service dict with hybrid real+simulator routing.
+) -> tuple[ServiceLayerState, ExecutionTrace, dict[str, Any]]:
+    """Create connector services for currently configured real connectors.
 
-    Modes (controlled by settings.connector_mode):
-      "simulator"  — always returns the in-memory simulator services (default)
-      "hybrid"     — uses a real connector per service when credentials are set,
-                     falls back to the simulator service otherwise
-      "real"       — same as hybrid; callers can inspect returned services to
-                     verify all are real connectors
+    Simulator fallback has been removed. This returns only connector-backed services.
     """
-    state, trace, sim_services, _ = create_simulator()
-
-    if settings.connector_mode == "simulator":
-        return state, trace, sim_services, failure_config
+    state = ServiceLayerState()
+    trace = ExecutionTrace()
 
     http_client = httpx.AsyncClient(timeout=30.0)
     registry = ConnectorRegistry(settings, trace, http_client)
 
     services: dict[str, Any] = {}
-    service_names = set(sim_services.keys()) | set(registry.list_available())
+    service_names = set(registry.list_available())
 
     for name in sorted(service_names):
         connector = registry.get(name)
-        sim_svc = sim_services.get(name)
 
-        # Prefer a configured connector, and always expose connector-only services
-        # (services that do not exist in the legacy simulator set).
-        if connector is not None and (connector.is_configured(settings) or sim_svc is None):
+        if connector is not None and connector.is_configured(settings):
             services[name] = connector
-            continue
-
-        if sim_svc is not None:
-            services[name] = sim_svc
 
     # Stash the http_client so close_service_layer can always close it,
     # even when no connectors ended up in the service map.
     services["_http_client"] = http_client
 
-    return state, trace, services, failure_config
+    return state, trace, services
 
 
 async def close_service_layer(services: dict[str, Any]) -> None:

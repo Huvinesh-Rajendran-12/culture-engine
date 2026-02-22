@@ -6,9 +6,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from ..simulator.services import ServiceError
-from ..simulator.state import ExecutionTrace
 from .base import BaseConnector
+from .contracts import ExecutionTrace, ServiceError
 from .registry import register
 
 if TYPE_CHECKING:
@@ -76,9 +75,13 @@ class GithubConnector(BaseConnector):
             json={"role": "member"},
         )
         if resp.status_code == 403:
-            raise ServiceError("Insufficient GitHub org permissions", "permission_denied")
+            raise ServiceError(
+                "Insufficient GitHub org permissions", "permission_denied"
+            )
         if resp.status_code == 404:
-            raise ServiceError(f"GitHub org '{org}' or user '{username}' not found", "not_found")
+            raise ServiceError(
+                f"GitHub org '{org}' or user '{username}' not found", "not_found"
+            )
         if resp.status_code not in (200, 201):
             raise ServiceError(
                 f"GitHub add_to_org failed ({resp.status_code}): {resp.text[:200]}",
@@ -92,9 +95,11 @@ class GithubConnector(BaseConnector):
         """Grant a user access to a repository."""
         username = params.get("username", "")
         repo = params.get("repo", "")
-        # GitHub API uses "pull"/"push"/"admin" — map simulator "read"→"pull", "write"→"push"
+        # GitHub API uses "pull"/"push"/"admin" — map internal "read"->"pull", "write"->"push"
         raw_permission = params.get("permission", "read")
-        permission = {"read": "pull", "write": "push"}.get(raw_permission, raw_permission)
+        permission = {"read": "pull", "write": "push"}.get(
+            raw_permission, raw_permission
+        )
         org = self._default_org
 
         resp = await self.http.put(
@@ -103,10 +108,13 @@ class GithubConnector(BaseConnector):
             json={"permission": permission},
         )
         if resp.status_code == 403:
-            raise ServiceError("Insufficient GitHub repo permissions", "permission_denied")
+            raise ServiceError(
+                "Insufficient GitHub repo permissions", "permission_denied"
+            )
         if resp.status_code == 404:
             raise ServiceError(
-                f"GitHub repo '{org}/{repo}' or user '{username}' not found", "not_found"
+                f"GitHub repo '{org}/{repo}' or user '{username}' not found",
+                "not_found",
             )
         # 201 = invitation sent, 204 = already a collaborator
         if resp.status_code not in (200, 201, 204):
@@ -114,6 +122,11 @@ class GithubConnector(BaseConnector):
                 f"GitHub grant_repo_access failed ({resp.status_code}): {resp.text[:200]}",
                 "connector_error",
             )
-        result = {"username": username, "repo": repo, "permission": raw_permission, "status": "granted"}
+        result = {
+            "username": username,
+            "repo": repo,
+            "permission": raw_permission,
+            "status": "granted",
+        }
         self._log(node_id, "grant_repo_access", params, result)
         return result

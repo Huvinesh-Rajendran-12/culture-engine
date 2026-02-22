@@ -1,4 +1,3 @@
-import json
 import shutil
 import sys
 import tempfile
@@ -130,24 +129,30 @@ class MemoryFtsTests(unittest.TestCase):
             manager = MemoryManager(tmp_dir / "test.db")
             mind_id = "mind_1"
 
-            manager.save(MemoryEntry(
-                mind_id=mind_id,
-                content="Release notes for version 3.2",
-                category="notes",
-                relevance_keywords=["release", "version"],
-            ))
-            manager.save(MemoryEntry(
-                mind_id=mind_id,
-                content="Meeting notes from Monday standup",
-                category="notes",
-                relevance_keywords=["meeting", "standup"],
-            ))
-            manager.save(MemoryEntry(
-                mind_id=mind_id,
-                content="Database migration plan for Q4",
-                category="planning",
-                relevance_keywords=["database", "migration"],
-            ))
+            manager.save(
+                MemoryEntry(
+                    mind_id=mind_id,
+                    content="Release notes for version 3.2",
+                    category="notes",
+                    relevance_keywords=["release", "version"],
+                )
+            )
+            manager.save(
+                MemoryEntry(
+                    mind_id=mind_id,
+                    content="Meeting notes from Monday standup",
+                    category="notes",
+                    relevance_keywords=["meeting", "standup"],
+                )
+            )
+            manager.save(
+                MemoryEntry(
+                    mind_id=mind_id,
+                    content="Database migration plan for Q4",
+                    category="planning",
+                    relevance_keywords=["database", "migration"],
+                )
+            )
 
             results = manager.search(mind_id, "release notes")
             self.assertTrue(len(results) >= 1)
@@ -174,14 +179,18 @@ class MemoryFtsTests(unittest.TestCase):
         try:
             manager = MemoryManager(tmp_dir / "test.db")
 
-            manager.save(MemoryEntry(
-                mind_id="mind_a",
-                content="Secret project alpha details",
-            ))
-            manager.save(MemoryEntry(
-                mind_id="mind_b",
-                content="Secret project beta details",
-            ))
+            manager.save(
+                MemoryEntry(
+                    mind_id="mind_a",
+                    content="Secret project alpha details",
+                )
+            )
+            manager.save(
+                MemoryEntry(
+                    mind_id="mind_b",
+                    content="Secret project beta details",
+                )
+            )
 
             results_a = manager.search("mind_a", "secret project")
             results_b = manager.search("mind_b", "secret project")

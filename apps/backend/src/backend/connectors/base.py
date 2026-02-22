@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import httpx
 
-from ..simulator.services import ServiceError
-from ..simulator.state import ExecutionTrace, TraceStep
+from .contracts import ExecutionTrace, ServiceError, TraceStep
 
 if TYPE_CHECKING:
     from ..config import Settings

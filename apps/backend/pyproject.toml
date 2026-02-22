@@ -1,7 +1,7 @@
 [project]
 name = "backend"
 version = "0.1.0"
-description = "FlowForge Backend - AI agents that design, build, and run workflows from natural language"
+description = "FlowForge Backend - Culture Engine API for Mind delegation and memory"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

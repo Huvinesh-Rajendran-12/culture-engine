@@ -1,10 +1,6 @@
 # FlowForge / Culture Engine
 
-FlowForge is evolving into **Culture Engine**: a general-purpose delegation platform powered by autonomous **Minds** (with future **Drone** sub-agents).
-
-Today, the repo contains:
-- a **legacy workflow pipeline** (DAG + simulator), and
-- a new **Mind Phase 1 foundation** (identity, memory, reasoning, delegation API).
+FlowForge is a **Culture Engine**: a general-purpose delegation platform powered by autonomous **Minds** (with future **Drone** sub-agents).
 
 ---
 
@@ -12,9 +8,8 @@ Today, the repo contains:
 
 | Directory | Stack | Description |
 |---|---|---|
-| `apps/backend` | Python, FastAPI, pi-agent-core, SQLite | API for legacy workflows + new Mind delegation |
-| `apps/frontend` | React, Vite, TypeScript | Web client scaffold |
-| `apps/workflows` | JSON | Legacy workflow artifacts |
+| `apps/backend` | Python, FastAPI, pi-agent-core, SQLite | API for Mind delegation, task traces, and memory |
+| `apps/frontend` | Svelte, Vite, TypeScript | Web client scaffold |
 
 ---
 
@@ -56,12 +51,6 @@ npm run dev
 - `GET /api/minds/{mind_id}/tasks`
 - `GET /api/minds/{mind_id}/tasks/{task_id}`
 - `GET /api/minds/{mind_id}/memory`
-
-### Legacy FlowForge workflow endpoints (kept for compatibility)
-- `POST /api/workflows/generate` (SSE)
-- `GET /api/workflows`
-- `GET /api/workflows/{workflow_id}`
-- `DELETE /api/workflows/{workflow_id}`
 
 ### Health
 - `GET /api/health`

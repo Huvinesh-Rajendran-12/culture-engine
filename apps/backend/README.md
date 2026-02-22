@@ -1,9 +1,6 @@
-# FlowForge Backend (Culture Engine transition)
+# FlowForge Backend (Culture Engine)
 
-FastAPI backend for two parallel paths:
-
-1. **Culture Engine (current direction)** — persistent Mind delegation.
-2. **Legacy FlowForge workflows** — DAG generation/execution kept for compatibility.
+FastAPI backend for the Culture Engine path: persistent Mind delegation.
 
 ## Tech Stack
 
@@ -53,12 +50,6 @@ uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8100
 - `GET /api/minds/{mind_id}/tasks/{task_id}`
 - `GET /api/minds/{mind_id}/tasks/{task_id}/trace`
 - `GET /api/minds/{mind_id}/memory`
-
-### Legacy workflow endpoints
-- `POST /api/workflows/generate` (SSE)
-- `GET /api/workflows`
-- `GET /api/workflows/{workflow_id}`
-- `DELETE /api/workflows/{workflow_id}`
 
 ## Mind execution model (simplified)
 

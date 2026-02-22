@@ -6,13 +6,12 @@ import asyncio
 import base64
 import json
 from email.mime.text import MIMEText
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import httpx
 
-from ..simulator.services import ServiceError
-from ..simulator.state import ExecutionTrace
 from .base import BaseConnector
+from .contracts import ExecutionTrace, ServiceError
 from .registry import register
 
 if TYPE_CHECKING:
@@ -66,7 +65,7 @@ class GoogleConnector(BaseConnector):
     ) -> GoogleConnector:
         sa_json = settings.google_service_account_json or "{}"
         # Let JSONDecodeError propagate — _instantiate_connector catches it and
-        # returns None, so create_service_layer falls back to the simulator
+        # returns None, so create_service_layer skips this connector
         # instead of routing to a broken connector with empty credentials.
         sa_info = json.loads(sa_json)
         return cls(
@@ -79,7 +78,9 @@ class GoogleConnector(BaseConnector):
 
     @classmethod
     def is_configured(cls, settings: Settings) -> bool:
-        return bool(settings.google_service_account_json and settings.google_admin_email)
+        return bool(
+            settings.google_service_account_json and settings.google_admin_email
+        )
 
     # ------------------------------------------------------------------
     # Actions
@@ -106,7 +107,9 @@ class GoogleConnector(BaseConnector):
             },
         )
         if resp.status_code == 409:
-            raise ServiceError(f"Google account {email} already exists", "already_exists")
+            raise ServiceError(
+                f"Google account {email} already exists", "already_exists"
+            )
         if resp.status_code not in (200, 201):
             raise ServiceError(
                 f"Google provision_account failed ({resp.status_code}): {resp.text[:200]}",
@@ -188,7 +191,6 @@ class GoogleConnector(BaseConnector):
         Caches the token until 5 minutes before expiry.
         """
         import time
-        import urllib.parse
 
         now = int(time.time())
         if self._cached_token and now < self._token_expiry:
@@ -217,6 +219,7 @@ class GoogleConnector(BaseConnector):
 
         # Synchronous token fetch (called from run_in_executor)
         import httpx
+
         data = {
             "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
             "assertion": assertion,
@@ -225,16 +228,20 @@ class GoogleConnector(BaseConnector):
             resp = client.post(_TOKEN_URL, data=data)
             body = resp.json()
         if "access_token" not in body:
-            raise ServiceError(f"Failed to obtain Google access token: {body}", "auth_error")
-        self._cached_token = body["access_token"]
+            raise ServiceError(
+                f"Failed to obtain Google access token: {body}", "auth_error"
+            )
+        token = str(body["access_token"])
+        self._cached_token = token
         # Cache until 5 minutes before expiry (tokens last 3600s)
         self._token_expiry = now + body.get("expires_in", 3600) - 300
-        return self._cached_token
+        return token
 
 
 def _temp_password() -> str:
     """Generate a secure random temporary password for a new user."""
     import secrets
     import string
+
     alphabet = string.ascii_letters + string.digits + "!@#$%"
     return "".join(secrets.choice(alphabet) for _ in range(12))

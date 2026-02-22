@@ -57,12 +57,12 @@ gh api repos/Huvinesh-Rajendran-12/flow-forge/pulls/$PR/reviews/$review_id/comme
 
 3. **Apply minimal, compatible fixes**
 - Prioritize P1 security/reliability comments.
-- Keep legacy workflow compatibility and SSE event contract intact.
+- Preserve Mind API behavior and SSE event contract.
 - For connector code specifically:
   - sanitize service names before file-path operations,
   - isolate connector load/instantiation failures,
   - close `httpx.AsyncClient` resources,
-  - avoid connector auto-build work in `connector_mode="simulator"`.
+  - avoid connector auto-build loops for unresolved connector failures.
 
 4. **Run backend tests**
 
@@ -114,7 +114,7 @@ All responses are SSE events with shape `{"type": "...", "content": ...}`. Commo
 | `mind/tools/primitives.py` | `memory_save`, `memory_search`, `spawn_agent` tools |
 | `mind/store.py` | SQLite persistence for Mind profiles, tasks, and traces |
 | `mind/memory.py` | SQLite FTS-backed memory retrieval and storage |
-| `connectors/__init__.py` | `create_service_layer()` / `close_service_layer()` — hybrid real+simulator routing; stashes `_http_client` for cleanup |
+| `connectors/__init__.py` | `create_service_layer()` / `close_service_layer()` — connector routing and `_http_client` lifecycle cleanup |
 | `connectors/registry.py` | `ConnectorRegistry` — discovers built-in + custom connectors; falls back to custom file if built-in fails |
 | `connectors/builder/` | Agent-driven connector generation + two-stage validation (AST + subprocess, enforces `@classmethod`) |
 

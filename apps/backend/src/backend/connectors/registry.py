@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Type
 
 import httpx
 
-from ..simulator.state import ExecutionTrace
 from .base import BaseConnector
+from .contracts import ExecutionTrace
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,10 @@ class ConnectorRegistry:
             if instance is not None:
                 return instance
             # Built-in failed — fall through to custom file as fallback
-            logger.debug("Built-in connector %s failed to load; trying custom fallback", service_name)
+            logger.debug(
+                "Built-in connector %s failed to load; trying custom fallback",
+                service_name,
+            )
 
         # 2. Try dynamically-loaded custom connector (agent-built)
         custom_path = CUSTOM_CONNECTOR_DIR / f"{service_name}.py"
@@ -92,7 +95,12 @@ class ConnectorRegistry:
         try:
             instance = cls.from_settings(self._settings, self._trace, self._http)
         except Exception as e:
-            logger.warning("Failed to instantiate connector '%s': %s", service_name, e, exc_info=True)
+            logger.warning(
+                "Failed to instantiate connector '%s': %s",
+                service_name,
+                e,
+                exc_info=True,
+            )
             return None
 
         self._cache[service_name] = instance
@@ -108,14 +116,14 @@ class ConnectorRegistry:
         custom: set[str] = set()
         if CUSTOM_CONNECTOR_DIR.exists():
             custom = {
-                p.stem for p in CUSTOM_CONNECTOR_DIR.glob("*.py") if is_safe_service_name(p.stem)
+                p.stem
+                for p in CUSTOM_CONNECTOR_DIR.glob("*.py")
+                if is_safe_service_name(p.stem)
             }
         return sorted(built_in | custom)
 
 
-def _load_custom_connector(
-    path: Path, service_name: str
-) -> Type[BaseConnector] | None:
+def _load_custom_connector(path: Path, service_name: str) -> Type[BaseConnector] | None:
     """Dynamically import a custom connector file and return its connector class.
 
     Convention: the class must be named {service_name.capitalize()}Connector

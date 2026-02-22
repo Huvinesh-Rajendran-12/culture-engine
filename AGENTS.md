@@ -3,8 +3,8 @@
 This is the agent-facing map for the `flow-forge/` monorepo.
 
 The project is currently in a **transition state**:
-1. Legacy FlowForge workflow engine still exists and must keep working.
-2. New **Culture Engine** (Mind/Drone architecture) is being built incrementally.
+1. New **Culture Engine** (Mind/Drone architecture) is the active API surface.
+2. Legacy FlowForge workflow runtime has been removed; only archived artifacts remain.
 
 When in doubt, preserve compatibility and keep changes simple.
 
@@ -13,8 +13,8 @@ When in doubt, preserve compatibility and keep changes simple.
 ## 1) Monorepo Overview
 
 - `apps/backend` — FastAPI + `pi-agent-core` runtime
-- `apps/frontend` — React + Vite app (minimal)
-- `apps/workflows` — persisted legacy workflow JSON artifacts
+- `apps/frontend` — Svelte + Vite app
+- `apps/workflows` — archived legacy workflow JSON artifacts
 
 Root scripts (`package.json`):
 - `dev:frontend`
@@ -41,10 +41,9 @@ Phase 1 scope intentionally simplified:
 - SQLite (WAL mode) persistence with FTS5 memory search
 - prompt composition from identity + memory
 
-### B) Legacy FlowForge (compat path)
-Still exposed and supported:
-- `POST /api/workflows/generate` (SSE)
-- workflow CRUD endpoints
+### B) Legacy FlowForge (removed runtime path)
+Legacy workflow API endpoints and internal workflow execution modules have been removed.
+Only archived workflow JSON artifacts remain under `apps/workflows/`.
 
 ---
 
@@ -68,9 +67,8 @@ Still exposed and supported:
 - `mind/tools/factory.py` — plain per-run tool list assembly
 - `mind/tools/primitives.py` — Mind-specific primitives (`memory_save`, `memory_search`, `spawn_agent`)
 
-### Legacy workflow layer
-- `workflow/` — schema/executor/pipeline/store/report
-- `simulator/` — fake services + failure injection
+### Supporting tooling + connector layer
+- `connectors/contracts.py` — shared connector error + trace contracts
 - `agents/api_catalog.py`, `agents/kb_search.py`, `agents/tools.py`
 
 ---
@@ -164,7 +162,6 @@ When a PR gets review comments, follow this flow:
    - Isolate dynamic connector instantiation failures so one bad connector does not break unrelated workflows.
    - Fall back to custom connector file when a built-in connector's `from_settings` fails.
    - Close `httpx.AsyncClient` instances after each workflow run (stashed in service map via `_http_client` key to prevent orphan leaks).
-   - Skip connector auto-build loops when `connector_mode == "simulator"`.
    - Connector validator enforces `@classmethod` decorator on `from_settings` / `is_configured`.
 
 5. **Verify before shipping**

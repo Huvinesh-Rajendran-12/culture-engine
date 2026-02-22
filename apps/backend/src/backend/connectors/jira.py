@@ -7,9 +7,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from ..simulator.services import ServiceError
-from ..simulator.state import ExecutionTrace
 from .base import BaseConnector
+from .contracts import ExecutionTrace, ServiceError
 from .registry import register
 
 if TYPE_CHECKING:
@@ -63,7 +62,9 @@ class JiraConnector(BaseConnector):
 
     @classmethod
     def is_configured(cls, settings: Settings) -> bool:
-        return bool(settings.jira_base_url and settings.jira_email and settings.jira_api_token)
+        return bool(
+            settings.jira_base_url and settings.jira_email and settings.jira_api_token
+        )
 
     # ------------------------------------------------------------------
     # Actions
@@ -90,7 +91,11 @@ class JiraConnector(BaseConnector):
         )
         self._check_error(resp)
         issue_key = resp.json()["key"]
-        result = {"issue_key": issue_key, "summary": params.get("summary", ""), "status": "created"}
+        result = {
+            "issue_key": issue_key,
+            "summary": params.get("summary", ""),
+            "status": "created",
+        }
         self._log(node_id, "create_issue", params, result)
         return result
 
@@ -112,7 +117,11 @@ class JiraConnector(BaseConnector):
         # 204 = success, no body
         if resp.status_code not in (200, 204):
             self._check_error(resp)
-        result = {"issue_key": issue_key, "assignee": assignee_account_id, "status": "assigned"}
+        result = {
+            "issue_key": issue_key,
+            "assignee": assignee_account_id,
+            "status": "assigned",
+        }
         self._log(node_id, "assign_issue", params, result)
         return result
 
@@ -124,10 +133,15 @@ class JiraConnector(BaseConnector):
         if resp.status_code in (200, 201, 204):
             return
         if resp.status_code == 401:
-            raise ServiceError("Jira authentication failed — check JIRA_EMAIL and JIRA_API_TOKEN", "auth_error")
+            raise ServiceError(
+                "Jira authentication failed — check JIRA_EMAIL and JIRA_API_TOKEN",
+                "auth_error",
+            )
         if resp.status_code == 403:
             raise ServiceError("Jira permission denied", "permission_denied")
         if resp.status_code == 404:
             raise ServiceError("Jira resource not found", "not_found")
         body = resp.text[:300]
-        raise ServiceError(f"Jira API error {resp.status_code}: {body}", "connector_error")
+        raise ServiceError(
+            f"Jira API error {resp.status_code}: {body}", "connector_error"
+        )

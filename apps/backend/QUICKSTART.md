@@ -82,25 +82,7 @@ curl http://localhost:8100/api/minds/<mind_id>/tasks/<task_id>/trace
 
 ---
 
-## 4) Legacy workflow path (compatibility)
-
-```bash
-curl -N -X POST http://localhost:8100/api/workflows/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "description": "Create an onboarding workflow for a new engineering hire",
-    "context": {
-      "employee_name": "Jane Doe",
-      "role": "Software Engineer",
-      "department": "Engineering"
-    },
-    "team": "default"
-  }'
-```
-
----
-
-## 5) Troubleshooting
+## 4) Troubleshooting
 
 - **Auth errors**: verify `.env` keys and endpoint settings
 - **Port conflict**: run with `--port 8001`

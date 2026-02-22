@@ -89,7 +89,7 @@ async def build_connector(
                 "type": "error",
                 "content": (
                     f"Builder agent did not produce connector.py for '{service_name}'. "
-                    f"The service will fall back to the simulator."
+                    f"The service will remain unavailable until a connector is provided."
                 ),
             }
             return
@@ -101,7 +101,7 @@ async def build_connector(
                 "content": (
                     f"Connector validation failed for '{service_name}': "
                     + "; ".join(errors)
-                    + ". The service will fall back to the simulator."
+                    + ". The service will remain unavailable until fixed."
                 ),
             }
             return

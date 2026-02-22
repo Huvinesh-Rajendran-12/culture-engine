@@ -6,9 +6,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from ..simulator.services import ServiceError
-from ..simulator.state import ExecutionTrace
 from .base import BaseConnector
+from .contracts import ExecutionTrace, ServiceError
 from .registry import register
 
 if TYPE_CHECKING:
@@ -69,7 +68,11 @@ class SlackConnector(BaseConnector):
             self._map_error(data.get("error", "unknown"))
 
         channel_id = data["channel"]["id"]
-        result = {"channel": f"#{channel_name}", "channel_id": channel_id, "status": "created"}
+        result = {
+            "channel": f"#{channel_name}",
+            "channel_id": channel_id,
+            "status": "created",
+        }
         self._log(node_id, "create_channel", params, result)
         return result
 
@@ -160,5 +163,7 @@ class SlackConnector(BaseConnector):
             "channel_not_found": ("Channel not found", "not_found"),
             "missing_scope": ("Bot missing required Slack scope", "permission_denied"),
         }
-        msg, etype = mapping.get(error_code, (f"Slack API error: {error_code}", "connector_error"))
+        msg, etype = mapping.get(
+            error_code, (f"Slack API error: {error_code}", "connector_error")
+        )
         raise ServiceError(msg, etype)

@@ -14,9 +14,7 @@ from .mind.memory import MemoryManager
 from .mind.pipeline import delegate_to_mind
 from .mind.schema import MemoryEntry, MindProfile, Task
 from .mind.store import MindStore
-from .models import DelegateTaskRequest, HealthResponse, MindCreateRequest, WorkflowRequest
-from .workflow.pipeline import generate_workflow
-from .workflow.store import WorkflowStore
+from .models import DelegateTaskRequest, HealthResponse, MindCreateRequest
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +22,17 @@ load_dotenv()
 
 app = FastAPI(
     title="FlowForge API",
-    description="AI agents that design, build, and run workflows from natural language",
+    description="Culture Engine API for Mind delegation, memory, and task traces",
     version="0.1.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174", "http://localhost:5173", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:5174",
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,7 +54,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
-WORKFLOWS_DIR = ROOT_DIR / "workflows"
 
 # Culture Engine storage (preferred)
 CULTURE_DATA_DIR = ROOT_DIR / "culture"
@@ -61,7 +62,6 @@ LEGACY_MIND_DATA_DIR = ROOT_DIR / "mind"
 if not CULTURE_DATA_DIR.exists() and LEGACY_MIND_DATA_DIR.exists():
     CULTURE_DATA_DIR = LEGACY_MIND_DATA_DIR
 
-workflow_store = WorkflowStore(WORKFLOWS_DIR)
 _DB_PATH = CULTURE_DATA_DIR / "culture.db"
 mind_store = MindStore(_DB_PATH)
 memory_manager = MemoryManager(_DB_PATH)
@@ -152,7 +152,9 @@ def _migrate_legacy_json(base_dir: Path) -> None:
         return
 
     marker.write_text("migrated")
-    logger.info("Legacy migration complete — imported %d records (%d skipped)", count, failures)
+    logger.info(
+        "Legacy migration complete — imported %d records (%d skipped)", count, failures
+    )
 
 
 @asynccontextmanager
@@ -172,63 +174,8 @@ def health():
     return HealthResponse(status="ok")
 
 
-# --- Legacy FlowForge workflow endpoints (kept for compatibility) ---
-
-@app.post("/api/workflows/generate")
-async def create_workflow_endpoint(request: WorkflowRequest):
-    """LEGACY: Generate or modify a workflow from natural language description."""
-    existing_workflow = None
-    if request.workflow_id:
-        existing_workflow = workflow_store.load(request.workflow_id, team=request.team)
-        if existing_workflow is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Workflow '{request.workflow_id}' not found for team '{request.team}'",
-            )
-
-    async def event_stream():
-        async for message in generate_workflow(
-            description=request.description,
-            context=request.context,
-            team=request.team,
-            existing_workflow=existing_workflow,
-            workflow_store=workflow_store,
-        ):
-            yield f"data: {json.dumps(message)}\n\n"
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        },
-    )
-
-
-@app.get("/api/workflows")
-def list_workflows(team: str = "default"):
-    workflows = workflow_store.list_by_team(team)
-    return [wf.model_dump() for wf in workflows]
-
-
-@app.get("/api/workflows/{workflow_id}")
-def get_workflow(workflow_id: str, team: str = "default"):
-    wf = workflow_store.load(workflow_id, team=team)
-    if wf is None:
-        raise HTTPException(status_code=404, detail="Workflow not found")
-    return wf.model_dump()
-
-
-@app.delete("/api/workflows/{workflow_id}")
-def delete_workflow(workflow_id: str, team: str = "default"):
-    deleted = workflow_store.delete(workflow_id, team=team)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Workflow not found")
-    return {"status": "deleted", "workflow_id": workflow_id}
-
-
 # --- Culture Engine Mind endpoints ---
+
 
 @app.post("/api/minds")
 def create_mind(request: MindCreateRequest):
@@ -306,4 +253,7 @@ def list_mind_memory(mind_id: str, category: str | None = None):
     mind = mind_store.load_mind(mind_id)
     if mind is None:
         raise HTTPException(status_code=404, detail="Mind not found")
-    return [m.model_dump(mode="json") for m in memory_manager.list_all(mind_id, category=category)]
+    return [
+        m.model_dump(mode="json")
+        for m in memory_manager.list_all(mind_id, category=category)
+    ]

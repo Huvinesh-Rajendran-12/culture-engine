@@ -10,8 +10,8 @@ The file must contain exactly one class named {ServiceName}Connector that follow
 
 ```python
 from backend.connectors.base import BaseConnector
+from backend.connectors.contracts import ServiceError
 from backend.connectors.registry import register
-from backend.simulator.services import ServiceError
 
 @register
 class {ServiceName}Connector(BaseConnector):

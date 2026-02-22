@@ -21,43 +21,43 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Connector mode
     # ------------------------------------------------------------------
-    # "simulator" — always use in-memory simulators (default, no external calls)
-    # "hybrid"    — use real connector per service when credentials are set,
-    #               fall back to simulator when not
+    # "hybrid"    — load configured real connectors
     # "real"      — same routing as hybrid; signals intent to use real services
-    connector_mode: Literal["simulator", "hybrid", "real"] = "simulator"
+    connector_mode: Literal["hybrid", "real"] = "hybrid"
 
     # ------------------------------------------------------------------
     # Slack credentials
     # ------------------------------------------------------------------
-    slack_bot_token: Optional[str] = None   # xoxb-...
+    slack_bot_token: Optional[str] = None  # xoxb-...
 
     # ------------------------------------------------------------------
     # GitHub credentials
     # ------------------------------------------------------------------
-    github_token: Optional[str] = None      # ghp_... or GitHub App installation token
-    github_org: Optional[str] = None        # default org name
+    github_token: Optional[str] = None  # ghp_... or GitHub App installation token
+    github_org: Optional[str] = None  # default org name
 
     # ------------------------------------------------------------------
     # Jira credentials (Jira Cloud REST API v3)
     # ------------------------------------------------------------------
-    jira_base_url: Optional[str] = None     # https://yourorg.atlassian.net
-    jira_email: Optional[str] = None        # user@yourorg.com
-    jira_api_token: Optional[str] = None    # Atlassian API token
+    jira_base_url: Optional[str] = None  # https://yourorg.atlassian.net
+    jira_email: Optional[str] = None  # user@yourorg.com
+    jira_api_token: Optional[str] = None  # Atlassian API token
     jira_project_key: Optional[str] = None  # e.g. "ONBOARD"
 
     # ------------------------------------------------------------------
     # Google Workspace credentials (service account with domain-wide delegation)
     # ------------------------------------------------------------------
-    google_service_account_json: Optional[str] = None  # full JSON string of service account key
-    google_admin_email: Optional[str] = None            # admin@yourdomain.com (delegated user)
-    google_domain: Optional[str] = None                 # yourdomain.com
+    google_service_account_json: Optional[str] = (
+        None  # full JSON string of service account key
+    )
+    google_admin_email: Optional[str] = None  # admin@yourdomain.com (delegated user)
+    google_domain: Optional[str] = None  # yourdomain.com
 
     # ------------------------------------------------------------------
     # HR system (generic configurable REST webhook)
     # ------------------------------------------------------------------
-    hr_base_url: Optional[str] = None       # https://hr.internal/api
-    hr_api_key: Optional[str] = None        # Bearer token
+    hr_base_url: Optional[str] = None  # https://hr.internal/api
+    hr_api_key: Optional[str] = None  # Bearer token
 
     class Config:
         env_file = ".env"
