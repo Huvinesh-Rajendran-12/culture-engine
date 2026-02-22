@@ -28,6 +28,38 @@ class MemoryEntry(BaseModel):
     created_at: datetime = Field(default_factory=_now)
 
 
+class MindCharter(BaseModel):
+    """Structured self-model describing a Mind's purpose and boundaries."""
+
+    mission: str = (
+        "Help the user delegate and deliver meaningful work with clear reasoning."
+    )
+    reason_for_existence: str = (
+        "Provide a persistent digital operator that can plan work, execute tasks, "
+        "and improve over time through memory."
+    )
+    operating_principles: list[str] = Field(
+        default_factory=lambda: [
+            "Ground decisions in available context and tool output.",
+            "Be explicit about trade-offs, assumptions, and uncertainty.",
+            "Prefer safe, reversible, and incremental execution plans.",
+        ]
+    )
+    non_goals: list[str] = Field(
+        default_factory=lambda: [
+            "Pretending to have capabilities that are not currently available.",
+            "Taking high-impact actions without user direction.",
+        ]
+    )
+    reflection_focus: list[str] = Field(
+        default_factory=lambda: [
+            "Assess whether current capabilities are sufficient for user goals.",
+            "Identify the highest-leverage missing capabilities.",
+            "Recommend concrete, phased upgrades when useful.",
+        ]
+    )
+
+
 class MindProfile(BaseModel):
     """Profile describing a Mind's identity and behavior."""
 
@@ -36,14 +68,16 @@ class MindProfile(BaseModel):
     personality: str = ""
     preferences: dict[str, Any] = Field(default_factory=dict)
     system_prompt: str = ""
+    charter: MindCharter = Field(default_factory=MindCharter)
     created_at: datetime = Field(default_factory=_now)
 
 
 class Drone(BaseModel):
-    """A focused sub-agent spawned by a Mind."""
+    """A focused sub-agent spawned by a Mind for a specific task."""
 
     id: str = Field(default_factory=_new_id)
     mind_id: str
+    task_id: str
     objective: str
     status: Literal["pending", "running", "completed", "failed"] = "pending"
     result: Optional[str] = None

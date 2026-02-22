@@ -129,7 +129,7 @@ def _load_custom_connector(path: Path, service_name: str) -> Type[BaseConnector]
     Convention: the class must be named {service_name.capitalize()}Connector
     e.g. service_name="zendesk" → class ZendeskConnector
     """
-    module_name = f"_flowforge_custom_connector_{service_name}"
+    module_name = f"_culture_engine_custom_connector_{service_name}"
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         return None

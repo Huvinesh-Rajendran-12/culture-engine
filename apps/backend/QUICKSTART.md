@@ -1,4 +1,4 @@
-# FlowForge Backend Quickstart
+# Culture Engine Backend Quickstart
 
 ## 1) Install + Configure
 
@@ -48,7 +48,11 @@ curl -X POST http://localhost:8100/api/minds \
   -d '{
     "name": "Orbit",
     "personality": "concise and practical",
-    "preferences": {"tone": "direct"}
+    "preferences": {"tone": "direct"},
+    "charter": {
+      "mission": "Help design and evolve the Mind platform with the user.",
+      "reason_for_existence": "Provide a persistent operator that can assess capabilities and execute safely."
+    }
   }'
 ```
 
@@ -62,6 +66,39 @@ curl -N -X POST http://localhost:8100/api/minds/<mind_id>/delegate \
     "team": "default"
   }'
 ```
+
+### Update Mind charter/profile (partial)
+
+```bash
+curl -X PATCH http://localhost:8100/api/minds/<mind_id> \
+  -H "Content-Type: application/json" \
+  -d '{
+    "personality": "strategic and candid",
+    "charter": {
+      "mission": "Continuously assess and improve Mind capabilities with the user.",
+      "reflection_focus": [
+        "Identify the biggest current capability gap",
+        "Recommend the next highest-leverage upgrade"
+      ]
+    }
+  }'
+```
+
+### Send user feedback to the Mind
+
+```bash
+curl -X POST http://localhost:8100/api/minds/<mind_id>/feedback \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Default to acting on reversible ambiguity and only ask on high-risk operations.",
+    "rating": 5,
+    "tags": ["autonomy", "risk_tolerance"]
+  }'
+```
+
+Notes:
+- Explicit feedback is optional. The Mind also infers implicit signals from usage patterns (e.g., rapid similar follow-ups and retry-after-failure behavior).
+- After each run, the Mind stores an autonomous `mind_insight` memory for future adaptation.
 
 Common event types:
 - `tool_registry`

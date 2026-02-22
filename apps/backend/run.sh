@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# FlowForge Backend Startup Script
+# Culture Engine Backend startup script
 
 set -e
 
@@ -9,7 +9,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-echo -e "${GREEN}Starting FlowForge Backend...${NC}"
+echo -e "${GREEN}Starting Culture Engine Backend...${NC}"
 
 # Check if .env exists
 if [ ! -f .env ]; then

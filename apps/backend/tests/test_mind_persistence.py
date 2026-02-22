@@ -1,4 +1,5 @@
 import shutil
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -9,7 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from backend.mind.database import init_db
 from backend.mind.memory import MemoryManager
-from backend.mind.schema import MemoryEntry, MindProfile, Task
+from backend.mind.schema import MemoryEntry, MindCharter, MindProfile, Task
 from backend.mind.store import MindStore
 
 
@@ -49,6 +50,37 @@ class DatabaseInitTests(unittest.TestCase):
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    def test_init_db_migrates_existing_minds_table_with_charter_column(self):
+        tmp_dir = Path(tempfile.mkdtemp(prefix="db-migrate-charter-tests-"))
+        try:
+            db_path = tmp_dir / "test.db"
+
+            conn = sqlite3.connect(str(db_path))
+            conn.executescript(
+                """
+                CREATE TABLE minds (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    personality TEXT NOT NULL DEFAULT '',
+                    preferences TEXT NOT NULL DEFAULT '{}',
+                    system_prompt TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.commit()
+            conn.close()
+
+            migrated = init_db(db_path)
+            columns = {
+                row[1]
+                for row in migrated.execute("PRAGMA table_info(minds)").fetchall()
+            }
+            self.assertIn("charter", columns)
+            migrated.close()
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 
 class MindStoreSqliteTests(unittest.TestCase):
     def test_mind_crud(self):
@@ -61,6 +93,8 @@ class MindStoreSqliteTests(unittest.TestCase):
 
             loaded = store.load_mind(mind.id)
             self.assertIsNotNone(loaded)
+            if loaded is None:
+                self.fail("Expected stored mind to be loadable")
             self.assertEqual(loaded.name, "TestMind")
             self.assertEqual(loaded.personality, "friendly")
 
@@ -85,8 +119,39 @@ class MindStoreSqliteTests(unittest.TestCase):
 
             trace = store.load_task_trace(mind_id, task_id)
             self.assertIsNotNone(trace)
+            if trace is None:
+                self.fail("Expected task trace to roundtrip")
             self.assertEqual(trace["task_id"], task_id)
             self.assertEqual(trace["events"], events)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_mind_charter_roundtrip(self):
+        tmp_dir = Path(tempfile.mkdtemp(prefix="mind-charter-tests-"))
+        try:
+            store = MindStore(tmp_dir / "test.db")
+            mind = MindProfile(
+                name="Builder",
+                charter=MindCharter(
+                    mission="Assess and evolve the Mind runtime.",
+                    non_goals=["Faking unsupported capabilities."],
+                ),
+            )
+
+            store.save_mind(mind)
+            loaded = store.load_mind(mind.id)
+
+            self.assertIsNotNone(loaded)
+            if loaded is None:
+                self.fail("Expected stored mind with charter to be loadable")
+            self.assertEqual(
+                loaded.charter.mission,
+                "Assess and evolve the Mind runtime.",
+            )
+            self.assertIn(
+                "Faking unsupported capabilities.",
+                loaded.charter.non_goals,
+            )
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 

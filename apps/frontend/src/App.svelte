@@ -3,12 +3,21 @@
 
   // ── Types ────────────────────────────────────────────────────────────────────
 
+  type MindCharter = {
+    mission: string;
+    reason_for_existence: string;
+    operating_principles: string[];
+    non_goals: string[];
+    reflection_focus: string[];
+  };
+
   type Mind = {
     id: string;
     name: string;
     personality: string;
     preferences: Record<string, unknown>;
     system_prompt: string;
+    charter: MindCharter;
     created_at: string;
   };
 
@@ -108,6 +117,25 @@
       return res.json();
     },
 
+    async updateMind(
+      mindId: string,
+      payload: {
+        name?: string;
+        personality?: string;
+        system_prompt?: string;
+        preferences?: Record<string, unknown>;
+        charter?: Partial<MindCharter>;
+      },
+    ): Promise<Mind> {
+      const res = await fetch(`/api/minds/${mindId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Failed to update mind");
+      return res.json();
+    },
+
     async listTasks(mindId: string): Promise<Task[]> {
       const res = await fetch(`/api/minds/${mindId}/tasks`);
       if (!res.ok) throw new Error("Failed to list tasks");
@@ -135,6 +163,18 @@
   let newMindPersonality = $state("Calm, pragmatic digital operator");
   let newMindSystemPrompt = $state("");
   let newMindPreferences = $state('{"tone":"direct","depth":"concise"}');
+
+  let editMindName = $state("");
+  let editMindPersonality = $state("");
+  let editMindSystemPrompt = $state("");
+  let editMindPreferences = $state("{}");
+  let editMission = $state("");
+  let editReasonForExistence = $state("");
+  let editOperatingPrinciples = $state("");
+  let editNonGoals = $state("");
+  let editReflectionFocus = $state("");
+  let editingMindId = $state("");
+  let savingMindProfile = $state(false);
 
   let teamName    = $state("default");
   let taskText    = $state(
@@ -261,6 +301,22 @@
     void refreshMemories(id);
   });
 
+  $effect(() => {
+    const id = selectedMindId;
+    if (!id) {
+      editingMindId = "";
+      return;
+    }
+
+    if (editingMindId === id) return;
+
+    const mind = minds.find((item) => item.id === id);
+    if (!mind) return;
+
+    hydrateMindEditor(mind);
+    editingMindId = id;
+  });
+
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
   function asObject(value: unknown): Record<string, unknown> {
@@ -285,6 +341,30 @@
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString();
+  }
+
+  function linesToList(raw: string): string[] {
+    return raw
+      .split("\n")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }
+
+  function listToLines(items: string[] | null | undefined): string {
+    if (!items || items.length === 0) return "";
+    return items.join("\n");
+  }
+
+  function hydrateMindEditor(mind: Mind): void {
+    editMindName = mind.name;
+    editMindPersonality = mind.personality || "";
+    editMindSystemPrompt = mind.system_prompt || "";
+    editMindPreferences = JSON.stringify(mind.preferences ?? {}, null, 2);
+    editMission = mind.charter?.mission || "";
+    editReasonForExistence = mind.charter?.reason_for_existence || "";
+    editOperatingPrinciples = listToLines(mind.charter?.operating_principles);
+    editNonGoals = listToLines(mind.charter?.non_goals);
+    editReflectionFocus = listToLines(mind.charter?.reflection_focus);
   }
 
   function parsePreferencesInput(raw: string): Record<string, unknown> {
@@ -589,6 +669,47 @@
     }
   }
 
+  function onResetMindEditor() {
+    if (!selectedMind) return;
+    hydrateMindEditor(selectedMind);
+  }
+
+  async function onUpdateMind(event: Event) {
+    event.preventDefault();
+    error = "";
+
+    if (!selectedMindId) return;
+
+    savingMindProfile = true;
+    try {
+      const preferences = parsePreferencesInput(editMindPreferences);
+      const updatedMind = await api.updateMind(selectedMindId, {
+        name: editMindName.trim(),
+        personality: editMindPersonality.trim(),
+        system_prompt: editMindSystemPrompt.trim(),
+        preferences,
+        charter: {
+          mission: editMission.trim(),
+          reason_for_existence: editReasonForExistence.trim(),
+          operating_principles: linesToList(editOperatingPrinciples),
+          non_goals: linesToList(editNonGoals),
+          reflection_focus: linesToList(editReflectionFocus),
+        },
+      });
+
+      minds = sortMinds(
+        minds.map((mind) => (mind.id === updatedMind.id ? updatedMind : mind)),
+      );
+      selectedMindId = updatedMind.id;
+      hydrateMindEditor(updatedMind);
+      editingMindId = updatedMind.id;
+    } catch (err) {
+      error = (err as Error).message;
+    } finally {
+      savingMindProfile = false;
+    }
+  }
+
   async function onDelegate(event: Event) {
     event.preventDefault();
     if (!selectedMindId || !taskText.trim()) return;
@@ -781,7 +902,7 @@
     {/if}
 
     <div class="sidebar-footer">
-      <span class="sidebar-version">FlowForge v0.1</span>
+      <span class="sidebar-version">Culture Engine v0.1</span>
     </div>
   </nav>
 
@@ -874,18 +995,88 @@
                 <span class="meta-value">{prettyDate(selectedMind.created_at)}</span>
               </div>
               <div class="meta-block">
-                <span class="meta-label">Personality</span>
+                <span class="meta-label">Mind ID</span>
+                <span class="meta-value">{selectedMind.id}</span>
+              </div>
+              <div class="meta-block">
+                <span class="meta-label">Current personality</span>
                 <span class="meta-value">{selectedMind.personality || "Not set"}</span>
               </div>
+              <div class="meta-block">
+                <span class="meta-label">Current mission</span>
+                <span class="meta-value">{selectedMind.charter?.mission || "Not set"}</span>
+              </div>
               <div class="meta-block full">
-                <span class="meta-label">Preferences</span>
+                <span class="meta-label">Current preferences</span>
                 <pre class="meta-pre">{formatPreferences(selectedMind)}</pre>
               </div>
               <div class="meta-block full">
-                <span class="meta-label">System prompt</span>
+                <span class="meta-label">Current system prompt</span>
                 <p class="meta-value">{selectedMind.system_prompt || "No custom system prompt"}</p>
               </div>
             </div>
+
+            <p class="subheading">Update profile and charter</p>
+            <form class="field-grid" onsubmit={onUpdateMind}>
+              <label class="field">
+                <span class="field-label">Name</span>
+                <input bind:value={editMindName} placeholder="Mind name" />
+              </label>
+
+              <label class="field">
+                <span class="field-label">Personality</span>
+                <input bind:value={editMindPersonality} placeholder="How this Mind behaves" />
+              </label>
+
+              <label class="field full">
+                <span class="field-label">System prompt override</span>
+                <textarea rows="3" bind:value={editMindSystemPrompt} placeholder="Optional operating rules"></textarea>
+              </label>
+
+              <label class="field full">
+                <span class="field-label">Preferences (JSON object)</span>
+                <textarea rows="3" bind:value={editMindPreferences} placeholder="Example: tone=direct, depth=concise"></textarea>
+              </label>
+
+              <label class="field full">
+                <span class="field-label">Mission</span>
+                <textarea rows="2" bind:value={editMission} placeholder="What this Mind is meant to accomplish"></textarea>
+              </label>
+
+              <label class="field full">
+                <span class="field-label">Reason for existence</span>
+                <textarea rows="2" bind:value={editReasonForExistence} placeholder="Why this Mind exists in the product"></textarea>
+              </label>
+
+              <label class="field full">
+                <span class="field-label">Operating principles (one per line)</span>
+                <textarea rows="3" bind:value={editOperatingPrinciples} placeholder="Ground decisions in evidence"></textarea>
+              </label>
+
+              <label class="field full">
+                <span class="field-label">Non-goals (one per line)</span>
+                <textarea rows="3" bind:value={editNonGoals} placeholder="Do not pretend unsupported capabilities"></textarea>
+              </label>
+
+              <label class="field full">
+                <span class="field-label">Reflection focus (one per line)</span>
+                <textarea rows="3" bind:value={editReflectionFocus} placeholder="Identify the next missing capability"></textarea>
+              </label>
+
+              <div class="actions full">
+                <button type="submit" class="btn-primary" disabled={savingMindProfile}>
+                  {savingMindProfile ? "Saving..." : "Save Mind Changes"}
+                </button>
+                <button
+                  type="button"
+                  class="btn-ghost"
+                  onclick={onResetMindEditor}
+                  disabled={savingMindProfile}
+                >
+                  Reset
+                </button>
+              </div>
+            </form>
           {:else}
             <span class="muted">Create or select a Mind to begin.</span>
           {/if}

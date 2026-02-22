@@ -1,4 +1,4 @@
-"""FlowForge AI Agents module."""
+"""Culture Engine AI agents module."""
 
 from .base import run_agent
 

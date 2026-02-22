@@ -44,10 +44,10 @@ gh pr status
 
 # Example for PR 2 in this repo:
 PR=2
-review_id=$(gh api repos/Huvinesh-Rajendran-12/flow-forge/pulls/$PR/reviews \
+review_id=$(gh api repos/Huvinesh-Rajendran-12/culture-engine/pulls/$PR/reviews \
   --jq 'map(select(.user.login=="chatgpt-codex-connector[bot]")) | sort_by(.submitted_at) | last | .id')
 
-gh api repos/Huvinesh-Rajendran-12/flow-forge/pulls/$PR/reviews/$review_id/comments
+gh api repos/Huvinesh-Rajendran-12/culture-engine/pulls/$PR/reviews/$review_id/comments
 ```
 
 2. **Validate each comment before editing**
@@ -84,7 +84,7 @@ If a comment is not valid, respond in the PR with a concise technical rationale 
 
 ## Architecture
 
-FlowForge is a monorepo with a FastAPI backend and a frontend client. The current focus is Mind-driven delegation: the user creates a persistent Mind, delegates tasks over SSE, and the system persists tasks, traces, and memory for iterative work.
+Culture Engine is a monorepo with a FastAPI backend and a frontend client. The current focus is Mind-driven delegation: the user creates a persistent Mind, delegates tasks over SSE, and the system persists tasks, traces, and memory for iterative work.
 
 ### Request Flow
 

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS minds (
     personality TEXT NOT NULL DEFAULT '',
     preferences TEXT NOT NULL DEFAULT '{}',
     system_prompt TEXT NOT NULL DEFAULT '',
+    charter TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
 
@@ -37,6 +38,26 @@ CREATE TABLE IF NOT EXISTS task_traces (
     task_id TEXT NOT NULL,
     events TEXT NOT NULL,
     PRIMARY KEY (mind_id, task_id)
+);
+
+CREATE TABLE IF NOT EXISTS drones (
+    id TEXT PRIMARY KEY,
+    mind_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    objective TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    result TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_drones_task ON drones(mind_id, task_id);
+
+CREATE TABLE IF NOT EXISTS drone_traces (
+    mind_id TEXT NOT NULL,
+    drone_id TEXT NOT NULL,
+    events TEXT NOT NULL,
+    PRIMARY KEY (mind_id, drone_id)
 );
 
 CREATE TABLE IF NOT EXISTS memories (
@@ -88,4 +109,17 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    _migrate_schema(conn)
     return conn
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Backfill additive schema changes for existing local databases."""
+
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(minds)").fetchall()
+    }
+
+    if "charter" not in columns:
+        conn.execute("ALTER TABLE minds ADD COLUMN charter TEXT NOT NULL DEFAULT '{}'")
+        conn.commit()

@@ -101,7 +101,7 @@ class MindApiTests(unittest.TestCase):
             }
             yield {"type": "result", "content": {"subtype": "completed"}}
 
-        with patch("backend.mind.reasoning.run_agent", new=fake_run_agent):
+        with patch("backend.mind.orchestrator.run_agent", new=fake_run_agent):
             with self.client.stream(
                 "POST",
                 f"/api/minds/{mind_id}/delegate",
@@ -178,7 +178,7 @@ class MindApiTests(unittest.TestCase):
             yield {"type": "text", "content": f"drone_workspace_leak={leak_detected}"}
             yield {"type": "result", "content": {"subtype": "completed"}}
 
-        with patch("backend.mind.reasoning.run_agent", new=fake_run_agent):
+        with patch("backend.mind.orchestrator.run_agent", new=fake_run_agent):
             with self.client.stream(
                 "POST",
                 f"/api/minds/{mind_id}/delegate",
@@ -212,7 +212,7 @@ class MindApiTests(unittest.TestCase):
                 },
             }
 
-        with patch("backend.mind.reasoning.run_agent", new=fake_run_agent):
+        with patch("backend.mind.orchestrator.run_agent", new=fake_run_agent):
             with self.client.stream(
                 "POST",
                 f"/api/minds/{mind_id}/delegate",
@@ -235,10 +235,16 @@ class MindApiTests(unittest.TestCase):
 
         memory_resp = self.client.get(f"/api/minds/{mind_id}/memory")
         memories = memory_resp.json()
-        self.assertEqual(len(memories), 1)
-        self.assertEqual(memories[0]["category"], "task_result")
+        categories = {memory["category"] for memory in memories}
+        self.assertIn("task_result", categories)
+        self.assertIn("mind_insight", categories)
+
+        task_result_memory = next(
+            memory for memory in memories if memory["category"] == "task_result"
+        )
         self.assertIn(
-            "Completed summary from final result payload.", memories[0]["content"]
+            "Completed summary from final result payload.",
+            task_result_memory["content"],
         )
 
     def test_error_result_marks_task_failed(self):
@@ -258,7 +264,7 @@ class MindApiTests(unittest.TestCase):
                 },
             }
 
-        with patch("backend.mind.reasoning.run_agent", new=fake_run_agent):
+        with patch("backend.mind.orchestrator.run_agent", new=fake_run_agent):
             with self.client.stream(
                 "POST",
                 f"/api/minds/{mind_id}/delegate",
@@ -299,7 +305,7 @@ class MindApiTests(unittest.TestCase):
                 },
             }
 
-        with patch("backend.mind.reasoning.run_agent", new=fake_run_agent):
+        with patch("backend.mind.orchestrator.run_agent", new=fake_run_agent):
             with self.client.stream(
                 "POST",
                 f"/api/minds/{mind_id}/delegate",
@@ -319,6 +325,355 @@ class MindApiTests(unittest.TestCase):
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0]["status"], "completed")
         self.assertEqual(tasks[0]["result"], "Recovered and completed successfully.")
+
+    def test_text_delta_volume_does_not_trip_structural_event_limit(self):
+        create_resp = self.client.post(
+            "/api/minds",
+            json={"name": "Signal"},
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        mind_id = create_resp.json()["id"]
+
+        async def fake_run_agent(*args, **kwargs):
+            for _ in range(350):
+                yield {"type": "text_delta", "content": "x"}
+            yield {
+                "type": "text",
+                "content": "I suggest adding a charter editor and capability roadmap.",
+            }
+            yield {
+                "type": "result",
+                "content": {
+                    "subtype": "completed",
+                    "final_text": "I suggest adding a charter editor and capability roadmap.",
+                },
+            }
+
+        with patch("backend.mind.orchestrator.run_agent", new=fake_run_agent):
+            with self.client.stream(
+                "POST",
+                f"/api/minds/{mind_id}/delegate",
+                json={"description": "How should you evolve next?", "team": "default"},
+            ) as response:
+                self.assertEqual(response.status_code, 200)
+                events = self._read_sse(response)
+
+        finished = next(evt for evt in events if evt["type"] == "task_finished")
+        self.assertEqual(finished["content"]["status"], "completed")
+
+        error_messages = [
+            str(evt.get("content")) for evt in events if evt.get("type") == "error"
+        ]
+        self.assertFalse(
+            any("Event limit reached" in message for message in error_messages),
+            msg=f"Unexpected structural event limit failure: {error_messages}",
+        )
+
+        tasks_resp = self.client.get(f"/api/minds/{mind_id}/tasks")
+        tasks = tasks_resp.json()
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["status"], "completed")
+        self.assertIn("charter editor", tasks[0]["result"])
+
+    def test_create_mind_includes_default_charter_and_accepts_override(self):
+        default_resp = self.client.post(
+            "/api/minds",
+            json={"name": "Atlas"},
+        )
+        self.assertEqual(default_resp.status_code, 200)
+        default_mind = default_resp.json()
+        self.assertIn("charter", default_mind)
+        self.assertIn("mission", default_mind["charter"])
+        self.assertIn("reason_for_existence", default_mind["charter"])
+        self.assertTrue(default_mind["charter"]["operating_principles"])
+
+        custom_resp = self.client.post(
+            "/api/minds",
+            json={
+                "name": "Navigator",
+                "charter": {
+                    "mission": "Design and evolve the Mind platform with the user.",
+                    "non_goals": ["Shipping capability changes without user consent."],
+                },
+            },
+        )
+        self.assertEqual(custom_resp.status_code, 200)
+        custom_mind = custom_resp.json()
+        self.assertEqual(
+            custom_mind["charter"]["mission"],
+            "Design and evolve the Mind platform with the user.",
+        )
+        self.assertIn(
+            "Shipping capability changes without user consent.",
+            custom_mind["charter"]["non_goals"],
+        )
+        self.assertTrue(custom_mind["charter"]["reason_for_existence"])
+
+    def test_patch_mind_updates_profile_and_charter_fields(self):
+        create_resp = self.client.post(
+            "/api/minds",
+            json={
+                "name": "Atlas",
+                "personality": "calm",
+                "preferences": {"tone": "direct"},
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        original = create_resp.json()
+        mind_id = original["id"]
+
+        patch_resp = self.client.patch(
+            f"/api/minds/{mind_id}",
+            json={
+                "name": "Atlas Prime",
+                "personality": "critical friend",
+                "preferences": {"tone": "analytical", "depth": "deep"},
+                "system_prompt": "Challenge assumptions and stay explicit.",
+                "charter": {
+                    "mission": "Continuously evaluate and improve Mind fitness.",
+                    "reflection_focus": [
+                        "Assess current capability limits.",
+                        "Recommend next capability upgrades.",
+                    ],
+                },
+            },
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+        patched = patch_resp.json()
+
+        self.assertEqual(patched["name"], "Atlas Prime")
+        self.assertEqual(patched["personality"], "critical friend")
+        self.assertEqual(
+            patched["preferences"],
+            {"tone": "analytical", "depth": "deep"},
+        )
+        self.assertEqual(
+            patched["system_prompt"],
+            "Challenge assumptions and stay explicit.",
+        )
+        self.assertEqual(
+            patched["charter"]["mission"],
+            "Continuously evaluate and improve Mind fitness.",
+        )
+        self.assertEqual(
+            patched["charter"]["reflection_focus"],
+            [
+                "Assess current capability limits.",
+                "Recommend next capability upgrades.",
+            ],
+        )
+        self.assertEqual(
+            patched["charter"]["reason_for_existence"],
+            original["charter"]["reason_for_existence"],
+        )
+
+        get_resp = self.client.get(f"/api/minds/{mind_id}")
+        self.assertEqual(get_resp.status_code, 200)
+        loaded = get_resp.json()
+        self.assertEqual(loaded["name"], "Atlas Prime")
+        self.assertEqual(
+            loaded["charter"]["mission"],
+            "Continuously evaluate and improve Mind fitness.",
+        )
+
+        implicit_resp = self.client.get(
+            f"/api/minds/{mind_id}/memory?category=implicit_feedback"
+        )
+        self.assertEqual(implicit_resp.status_code, 200)
+        implicit_memories = implicit_resp.json()
+        self.assertTrue(implicit_memories)
+        self.assertIn("profile update", implicit_memories[-1]["content"].lower())
+        self.assertIn("preferences_update", implicit_memories[-1]["relevance_keywords"])
+
+    def test_patch_mind_returns_404_for_unknown_mind(self):
+        patch_resp = self.client.patch(
+            "/api/minds/does_not_exist",
+            json={"personality": "updated"},
+        )
+        self.assertEqual(patch_resp.status_code, 404)
+        self.assertEqual(patch_resp.json()["detail"], "Mind not found")
+
+    def test_add_feedback_persists_memory(self):
+        create_resp = self.client.post(
+            "/api/minds",
+            json={"name": "Coach"},
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        mind_id = create_resp.json()["id"]
+
+        feedback_resp = self.client.post(
+            f"/api/minds/{mind_id}/feedback",
+            json={
+                "content": "Default to acting on reversible ambiguity; ask only for high-risk moves.",
+                "rating": 5,
+                "tags": ["autonomy", "risk_tolerance"],
+            },
+        )
+        self.assertEqual(feedback_resp.status_code, 200)
+        saved_feedback = feedback_resp.json()
+        self.assertEqual(saved_feedback["category"], "user_feedback")
+        self.assertIn("autonomy", saved_feedback["relevance_keywords"])
+
+        memory_resp = self.client.get(f"/api/minds/{mind_id}/memory")
+        memories = memory_resp.json()
+        self.assertTrue(
+            any(memory["category"] == "user_feedback" for memory in memories)
+        )
+
+    def test_delegate_prompt_includes_recent_user_feedback_memory(self):
+        create_resp = self.client.post(
+            "/api/minds",
+            json={"name": "Coach"},
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        mind_id = create_resp.json()["id"]
+
+        feedback_resp = self.client.post(
+            f"/api/minds/{mind_id}/feedback",
+            json={
+                "content": "Prefer shipping a reversible draft over asking for confirmation.",
+                "tags": ["shipping_style"],
+            },
+        )
+        self.assertEqual(feedback_resp.status_code, 200)
+
+        captured_prompt: dict[str, str] = {}
+
+        async def fake_run_agent(*args, **kwargs):
+            captured_prompt["value"] = kwargs.get("system_prompt", "")
+            yield {
+                "type": "result",
+                "content": {
+                    "subtype": "completed",
+                    "final_text": "Applied feedback-aware recommendation.",
+                },
+            }
+
+        with patch("backend.mind.orchestrator.run_agent", new=fake_run_agent):
+            with self.client.stream(
+                "POST",
+                f"/api/minds/{mind_id}/delegate",
+                json={"description": "Plan next sprint priorities", "team": "default"},
+            ) as response:
+                self.assertEqual(response.status_code, 200)
+                _ = self._read_sse(response)
+
+        system_prompt = captured_prompt.get("value", "")
+        self.assertIn("Prefer shipping a reversible draft", system_prompt)
+        self.assertIn("user_feedback", system_prompt)
+
+    def test_quick_followup_infers_implicit_feedback_without_explicit_rating(self):
+        create_resp = self.client.post(
+            "/api/minds",
+            json={"name": "Scout"},
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        mind_id = create_resp.json()["id"]
+
+        captured_prompts: list[str] = []
+
+        async def fake_run_agent(*args, **kwargs):
+            captured_prompts.append(kwargs.get("system_prompt", ""))
+            yield {
+                "type": "result",
+                "content": {
+                    "subtype": "completed",
+                    "final_text": "Delivered concise plan draft.",
+                },
+            }
+
+        with patch("backend.mind.orchestrator.run_agent", new=fake_run_agent):
+            with self.client.stream(
+                "POST",
+                f"/api/minds/{mind_id}/delegate",
+                json={
+                    "description": "Draft onboarding plan for backend engineers",
+                    "team": "default",
+                },
+            ) as first_response:
+                self.assertEqual(first_response.status_code, 200)
+                _ = self._read_sse(first_response)
+
+            with self.client.stream(
+                "POST",
+                f"/api/minds/{mind_id}/delegate",
+                json={
+                    "description": "Revise onboarding plan for backend engineers with clearer phases",
+                    "team": "default",
+                },
+            ) as second_response:
+                self.assertEqual(second_response.status_code, 200)
+                second_events = self._read_sse(second_response)
+
+        self.assertGreaterEqual(len(captured_prompts), 2)
+        second_prompt = captured_prompts[-1]
+        self.assertIn("implicit_feedback", second_prompt)
+        self.assertIn("quick follow-up on a similar task", second_prompt)
+
+        memory_context_event = next(
+            event for event in second_events if event["type"] == "memory_context"
+        )
+        context_payload = memory_context_event["content"]
+        self.assertGreaterEqual(context_payload.get("implicit_count", 0), 1)
+
+        implicit_resp = self.client.get(
+            f"/api/minds/{mind_id}/memory?category=implicit_feedback"
+        )
+        self.assertEqual(implicit_resp.status_code, 200)
+        implicit_memories = implicit_resp.json()
+        self.assertTrue(
+            any(
+                "quick follow-up on a similar task" in memory["content"]
+                for memory in implicit_memories
+            )
+        )
+
+    def test_delegate_prompt_includes_charter_and_runtime_manifest(self):
+        create_resp = self.client.post(
+            "/api/minds",
+            json={
+                "name": "Builder",
+                "charter": {
+                    "mission": "Continuously assess and improve Mind capabilities.",
+                },
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        mind_id = create_resp.json()["id"]
+
+        captured_prompt: dict[str, str] = {}
+
+        async def fake_run_agent(*args, **kwargs):
+            captured_prompt["value"] = kwargs.get("system_prompt", "")
+            yield {
+                "type": "result",
+                "content": {
+                    "subtype": "completed",
+                    "final_text": "Capability self-assessment complete.",
+                },
+            }
+
+        with patch("backend.mind.orchestrator.run_agent", new=fake_run_agent):
+            with self.client.stream(
+                "POST",
+                f"/api/minds/{mind_id}/delegate",
+                json={"description": "What capabilities should we add next?"},
+            ) as response:
+                self.assertEqual(response.status_code, 200)
+                _ = self._read_sse(response)
+
+        system_prompt = captured_prompt.get("value", "")
+        self.assertIn("Mind charter:", system_prompt)
+        self.assertIn(
+            "Continuously assess and improve Mind capabilities.",
+            system_prompt,
+        )
+        self.assertIn("Runtime capability manifest:", system_prompt)
+        self.assertIn("Tools available in this run:", system_prompt)
+        self.assertIn("spawn_agent_max_calls", system_prompt)
+        self.assertIn("stream_event_limit", system_prompt)
+        self.assertIn("text_delta_event_limit", system_prompt)
+        self.assertIn("Meta conversation policy:", system_prompt)
 
 
 class MindStoreTests(unittest.TestCase):
@@ -362,13 +717,13 @@ class SpawnAgentToolTests(unittest.IsolatedAsyncioTestCase):
         first = await tool.execute(
             "tc_1", {"objective": "Research pricing", "max_turns": 99}
         )
-        first_text = first.content[0].text
+        first_text = getattr(first.content[0], "text", "")
         self.assertIn("ok:Research pricing:7", first_text)
 
         second = await tool.execute(
             "tc_2", {"objective": "Write draft", "max_turns": 2}
         )
-        second_text = second.content[0].text
+        second_text = getattr(second.content[0], "text", "")
         self.assertIn("call limit reached", second_text)
 
         self.assertEqual(calls, [("Research pricing", 7)])
@@ -383,10 +738,13 @@ class MemoryToolTests(unittest.IsolatedAsyncioTestCase):
             memory_save = next(tool for tool in tools if tool.name == "memory_save")
 
             first = await memory_save.execute("mc_1", {"content": "first note"})
-            self.assertIn("Saved memory:", first.content[0].text)
+            self.assertIn("Saved memory:", getattr(first.content[0], "text", ""))
 
             second = await memory_save.execute("mc_2", {"content": "second note"})
-            self.assertIn("call limit reached", second.content[0].text)
+            self.assertIn(
+                "call limit reached",
+                getattr(second.content[0], "text", ""),
+            )
 
             memories = manager.list_all("mind_1")
             self.assertEqual(len(memories), 1)

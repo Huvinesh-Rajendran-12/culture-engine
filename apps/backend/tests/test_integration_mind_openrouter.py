@@ -9,8 +9,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from backend.config import get_settings
-from backend.mind.identity import create_mind_identity
 from backend.mind.memory import MemoryManager
+from backend.mind.schema import MindProfile
 from backend.mind.pipeline import delegate_to_mind
 from backend.mind.store import MindStore
 
@@ -75,7 +75,7 @@ class OpenRouterMindIntegrationTests(unittest.IsolatedAsyncioTestCase):
         get_settings.cache_clear()
         self.assertEqual(get_settings().default_model, MODEL_ID)
 
-        mind = create_mind_identity(name="Integration Mind", personality="concise")
+        mind = MindProfile(name="Integration Mind", personality="concise")
         self.mind_store.save_mind(mind)
 
         last_events: list[dict] = []

@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This is the agent-facing map for the `flow-forge/` monorepo.
+This is the agent-facing map for the `culture-engine/` monorepo.
 
 The project is currently in a **transition state**:
 1. New **Culture Engine** (Mind/Drone architecture) is the active API surface.
-2. Legacy FlowForge workflow runtime has been removed; only archived artifacts remain.
+2. Legacy workflow runtime has been removed; only archived artifacts remain.
 
 When in doubt, preserve compatibility and keep changes simple.
 
@@ -30,10 +30,14 @@ Main concept: user delegates tasks to a persistent **Mind**.
 
 Current backend endpoints:
 - `POST /api/minds`
+- `PATCH /api/minds/{id}`
 - `GET /api/minds/{id}`
+- `POST /api/minds/{id}/feedback`
 - `POST /api/minds/{id}/delegate` (SSE)
 - `GET /api/minds/{id}/tasks`
 - `GET /api/minds/{id}/tasks/{task_id}`
+- `GET /api/minds/{id}/tasks/{task_id}/drones`
+- `GET /api/minds/{id}/drones/{drone_id}/trace`
 - `GET /api/minds/{id}/memory`
 
 Phase 1 scope intentionally simplified:
@@ -41,7 +45,7 @@ Phase 1 scope intentionally simplified:
 - SQLite (WAL mode) persistence with FTS5 memory search
 - prompt composition from identity + memory
 
-### B) Legacy FlowForge (removed runtime path)
+### B) Legacy Runtime (removed workflow path)
 Legacy workflow API endpoints and internal workflow execution modules have been removed.
 Only archived workflow JSON artifacts remain under `apps/workflows/`.
 

@@ -1,7 +1,7 @@
 """System prompt and user prompt templates for the connector builder agent."""
 
 BUILDER_SYSTEM_PROMPT = """\
-You are a FlowForge Connector Builder. Your sole task is to write a Python connector \
+You are a Culture Engine Connector Builder. Your sole task is to write a Python connector \
 class for a specific third-party service API and save it as connector.py in your workspace.
 
 ## Mandatory class interface

@@ -1,4 +1,4 @@
-# FlowForge Backend (Culture Engine)
+# Culture Engine Backend
 
 FastAPI backend for the Culture Engine path: persistent Mind delegation.
 
@@ -45,6 +45,8 @@ uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8100
 - `POST /api/minds`
 - `GET /api/minds`
 - `GET /api/minds/{mind_id}`
+- `PATCH /api/minds/{mind_id}`
+- `POST /api/minds/{mind_id}/feedback`
 - `POST /api/minds/{mind_id}/delegate` (SSE)
 - `GET /api/minds/{mind_id}/tasks`
 - `GET /api/minds/{mind_id}/tasks/{task_id}`
@@ -52,6 +54,21 @@ uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8100
 - `GET /api/minds/{mind_id}/memory`
 
 ## Mind execution model (simplified)
+
+Mind identity includes:
+- name/personality/preferences/system prompt
+- structured charter (`mission`, `reason_for_existence`, principles, non-goals, reflection focus)
+
+For each delegation run, system prompting includes:
+- Mind identity + charter
+- retrieved long-term memories
+- runtime capability manifest (tool names + key limits)
+- recent user feedback memories + autonomous mind insight memories
+
+Learning loop:
+- explicit user feedback can be stored via `POST /api/minds/{mind_id}/feedback`
+- implicit preference signals are inferred from behavior (profile updates, rapid similar follow-ups, retry-after-failure)
+- each run saves a `mind_insight` memory with adaptation notes
 
 Current per-run toolset:
 - shared composable tools from `src/backend/agents/tools.py`

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from .database import init_db
-from .schema import MindProfile, Task
+from .schema import Drone, MindProfile, Task
 
 
 class MindStore:
@@ -23,14 +23,15 @@ class MindStore:
         with self._lock:
             self._conn.execute(
                 """INSERT OR REPLACE INTO minds
-                   (id, name, personality, preferences, system_prompt, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   (id, name, personality, preferences, system_prompt, charter, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     mind.id,
                     mind.name,
                     mind.personality,
                     json.dumps(mind.preferences),
                     mind.system_prompt,
+                    json.dumps(mind.charter.model_dump(mode="json")),
                     mind.created_at.isoformat(),
                 ),
             )
@@ -58,9 +59,7 @@ class MindStore:
     def delete_mind(self, mind_id: str) -> bool:
         """Delete a Mind profile."""
         with self._lock:
-            cursor = self._conn.execute(
-                "DELETE FROM minds WHERE id = ?", (mind_id,)
-            )
+            cursor = self._conn.execute("DELETE FROM minds WHERE id = ?", (mind_id,))
             self._conn.commit()
         return cursor.rowcount > 0
 
@@ -129,14 +128,76 @@ class MindStore:
             "events": json.loads(row["events"]),
         }
 
+    # ── Drone persistence ──────────────────────────────────────────────────
+
+    def save_drone(self, drone: Drone) -> str:
+        """Save a Drone record. Returns the Drone ID."""
+        with self._lock:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO drones
+                   (id, mind_id, task_id, objective, status, result, created_at, completed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    drone.id,
+                    drone.mind_id,
+                    drone.task_id,
+                    drone.objective,
+                    drone.status,
+                    drone.result,
+                    drone.created_at.isoformat(),
+                    drone.completed_at.isoformat() if drone.completed_at else None,
+                ),
+            )
+            self._conn.commit()
+        return drone.id
+
+    def list_drones(self, mind_id: str, task_id: str) -> list[Drone]:
+        """List all drones spawned for a specific task."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM drones WHERE mind_id = ? AND task_id = ? ORDER BY created_at",
+                (mind_id, task_id),
+            ).fetchall()
+        return [_row_to_drone(row) for row in rows]
+
+    def save_drone_trace(
+        self, mind_id: str, drone_id: str, events: list[dict]
+    ) -> None:
+        """Persist drone execution trace events."""
+        with self._lock:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO drone_traces (mind_id, drone_id, events)
+                   VALUES (?, ?, ?)""",
+                (mind_id, drone_id, json.dumps(events, default=str)),
+            )
+            self._conn.commit()
+
+    def load_drone_trace(self, mind_id: str, drone_id: str) -> Optional[dict]:
+        """Load a persisted drone trace by drone ID."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM drone_traces WHERE mind_id = ? AND drone_id = ?",
+                (mind_id, drone_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "mind_id": row["mind_id"],
+            "drone_id": row["drone_id"],
+            "events": json.loads(row["events"]),
+        }
+
 
 def _row_to_mind(row: dict) -> MindProfile:
+    charter = row["charter"] if "charter" in row.keys() else "{}"
+
     return MindProfile(
         id=row["id"],
         name=row["name"],
         personality=row["personality"],
         preferences=json.loads(row["preferences"]),
         system_prompt=row["system_prompt"],
+        charter=json.loads(charter or "{}"),
         created_at=row["created_at"],
     )
 
@@ -146,6 +207,19 @@ def _row_to_task(row: dict) -> Task:
         id=row["id"],
         mind_id=row["mind_id"],
         description=row["description"],
+        status=row["status"],
+        result=row["result"],
+        created_at=row["created_at"],
+        completed_at=row["completed_at"],
+    )
+
+
+def _row_to_drone(row: dict) -> Drone:
+    return Drone(
+        id=row["id"],
+        mind_id=row["mind_id"],
+        task_id=row["task_id"],
+        objective=row["objective"],
         status=row["status"],
         result=row["result"],
         created_at=row["created_at"],

@@ -1,4 +1,4 @@
-"""Base agent runner using pi-agent-core for FlowForge."""
+"""Base agent runner using pi-agent-core for Culture Engine."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from pi_agent_core import (
 
 from ..config import get_settings
 from .anthropic_stream import stream_anthropic
-from .tools import DEFAULT_TOOL_NAMES, create_flowforge_tools
+from .tools import DEFAULT_TOOL_NAMES, create_culture_engine_tools
 
 
 def _resolve_model_id(model_name: str, *, use_openrouter: bool = False) -> str:
@@ -272,7 +272,7 @@ async def run_agent(
         and "openrouter.ai" in settings.anthropic_base_url.lower()
     )
 
-    all_tools = tools_override or create_flowforge_tools(
+    all_tools = tools_override or create_culture_engine_tools(
         team=team, workspace_dir=workspace_dir
     )
 

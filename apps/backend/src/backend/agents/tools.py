@@ -67,10 +67,12 @@ def _resolve_path(cwd: Path, raw_path: str) -> Path:
     return path
 
 
-def create_flowforge_tools(team: str, workspace_dir: str) -> list[AgentTool]:
+def create_culture_engine_tools(team: str, workspace_dir: str) -> list[AgentTool]:
     cwd = Path(workspace_dir).resolve()
 
-    async def read_tool_execute(tool_call_id: str, params: dict, **_: object) -> AgentToolResult:
+    async def read_tool_execute(
+        tool_call_id: str, params: dict, **_: object
+    ) -> AgentToolResult:
         path = _resolve_path(cwd, params["path"])
         if not path.exists():
             raise ValueError(f"File not found: {path}")
@@ -83,14 +85,18 @@ def create_flowforge_tools(team: str, workspace_dir: str) -> list[AgentTool]:
             )
         return _text_result(path.read_text())
 
-    async def write_tool_execute(tool_call_id: str, params: dict, **_: object) -> AgentToolResult:
+    async def write_tool_execute(
+        tool_call_id: str, params: dict, **_: object
+    ) -> AgentToolResult:
         path = _resolve_path(cwd, params["path"])
         content = params.get("content", "")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
         return _text_result(f"Wrote {len(content)} chars to {path}")
 
-    async def edit_tool_execute(tool_call_id: str, params: dict, **_: object) -> AgentToolResult:
+    async def edit_tool_execute(
+        tool_call_id: str, params: dict, **_: object
+    ) -> AgentToolResult:
         path = _resolve_path(cwd, params["path"])
         old_text = params["old_text"]
         new_text = params["new_text"]
@@ -202,11 +208,21 @@ def create_flowforge_tools(team: str, workspace_dir: str) -> list[AgentTool]:
         finally:
             _close_pipes()
 
-    async def run_command_execute(tool_call_id: str, params: dict, **_: object) -> AgentToolResult:
+    async def run_command_execute(
+        tool_call_id: str, params: dict, **_: object
+    ) -> AgentToolResult:
         command = params["command"]
-        timeout = max(1, min(int(params.get("timeout", COMMAND_TIMEOUT)), COMMAND_TIMEOUT))
+        timeout = max(
+            1, min(int(params.get("timeout", COMMAND_TIMEOUT)), COMMAND_TIMEOUT)
+        )
 
-        stdout, stderr, returncode, was_truncated, timed_out = await asyncio.get_running_loop().run_in_executor(
+        (
+            stdout,
+            stderr,
+            returncode,
+            was_truncated,
+            timed_out,
+        ) = await asyncio.get_running_loop().run_in_executor(
             None, _run_command_sync, command, timeout
         )
 
@@ -224,16 +240,23 @@ def create_flowforge_tools(team: str, workspace_dir: str) -> list[AgentTool]:
             parts.append(f"... output truncated at {MAX_OUTPUT_BYTES} bytes")
         return _text_result("\n".join(parts))
 
-    async def search_apis_execute(tool_call_id: str, params: dict, **_: object) -> AgentToolResult:
+    async def search_apis_execute(
+        tool_call_id: str, params: dict, **_: object
+    ) -> AgentToolResult:
         query = params["query"]
         top_k = int(params.get("top_k", 5))
         results = [entry.to_dict() for entry in search_api_catalog(query, top_k=top_k)]
         return _text_result(json.dumps(results, indent=2))
 
-    async def search_kb_execute(tool_call_id: str, params: dict, **_: object) -> AgentToolResult:
+    async def search_kb_execute(
+        tool_call_id: str, params: dict, **_: object
+    ) -> AgentToolResult:
         query = params["query"]
         top_k = int(params.get("top_k", 5))
-        results = [section.to_dict() for section in search_knowledge_base(query, team=team, top_k=top_k)]
+        results = [
+            section.to_dict()
+            for section in search_knowledge_base(query, team=team, top_k=top_k)
+        ]
         return _text_result(json.dumps(results, indent=2))
 
     return [
@@ -241,7 +264,12 @@ def create_flowforge_tools(team: str, workspace_dir: str) -> list[AgentTool]:
             name="read_file",
             description="Read a text file from the workspace.",
             parameters=AgentToolSchema(
-                properties={"path": {"type": "string", "description": "Absolute or workspace-relative file path."}},
+                properties={
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute or workspace-relative file path.",
+                    }
+                },
                 required=["path"],
             ),
             execute=read_tool_execute,
@@ -251,7 +279,10 @@ def create_flowforge_tools(team: str, workspace_dir: str) -> list[AgentTool]:
             description="Write text content to a file, creating parent directories if needed.",
             parameters=AgentToolSchema(
                 properties={
-                    "path": {"type": "string", "description": "Absolute or workspace-relative file path."},
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute or workspace-relative file path.",
+                    },
                     "content": {"type": "string", "description": "File content."},
                 },
                 required=["path", "content"],
@@ -263,8 +294,14 @@ def create_flowforge_tools(team: str, workspace_dir: str) -> list[AgentTool]:
             description="Replace the first occurrence of old_text with new_text in a file.",
             parameters=AgentToolSchema(
                 properties={
-                    "path": {"type": "string", "description": "Absolute or workspace-relative file path."},
-                    "old_text": {"type": "string", "description": "Exact text to replace."},
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute or workspace-relative file path.",
+                    },
+                    "old_text": {
+                        "type": "string",
+                        "description": "Exact text to replace.",
+                    },
                     "new_text": {"type": "string", "description": "Replacement text."},
                 },
                 required=["path", "old_text", "new_text"],
@@ -276,7 +313,10 @@ def create_flowforge_tools(team: str, workspace_dir: str) -> list[AgentTool]:
             description="Run a shell command in the workspace directory. Secrets are stripped from the environment. Commands time out after 30 seconds.",
             parameters=AgentToolSchema(
                 properties={
-                    "command": {"type": "string", "description": "Shell command to execute."},
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command to execute.",
+                    },
                     "timeout": {
                         "type": "integer",
                         "description": "Max seconds to wait (default 30, max 30).",
@@ -299,7 +339,11 @@ def create_flowforge_tools(team: str, workspace_dir: str) -> list[AgentTool]:
                         "type": "string",
                         "description": "Natural language query describing the API capability needed.",
                     },
-                    "top_k": {"type": "integer", "description": "Maximum results to return.", "default": 5},
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Maximum results to return.",
+                        "default": 5,
+                    },
                 },
                 required=["query"],
             ),
@@ -314,10 +358,19 @@ def create_flowforge_tools(team: str, workspace_dir: str) -> list[AgentTool]:
                         "type": "string",
                         "description": "Natural language query describing the information needed.",
                     },
-                    "top_k": {"type": "integer", "description": "Maximum results to return.", "default": 5},
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Maximum results to return.",
+                        "default": 5,
+                    },
                 },
                 required=["query"],
             ),
             execute=search_kb_execute,
         ),
     ]
+
+
+def create_flowforge_tools(team: str, workspace_dir: str) -> list[AgentTool]:
+    """Backward-compatible alias for the pre-rename tool factory."""
+    return create_culture_engine_tools(team=team, workspace_dir=workspace_dir)

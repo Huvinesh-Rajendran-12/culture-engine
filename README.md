@@ -1,6 +1,6 @@
-# FlowForge / Culture Engine
+# Culture Engine
 
-FlowForge is a **Culture Engine**: a general-purpose delegation platform powered by autonomous **Minds** (with future **Drone** sub-agents).
+Culture Engine is a general-purpose delegation platform powered by autonomous **Minds** (with future **Drone** sub-agents).
 
 ---
 
@@ -47,10 +47,14 @@ npm run dev
 ### Culture Engine (new)
 - `POST /api/minds`
 - `GET /api/minds/{mind_id}`
+- `PATCH /api/minds/{mind_id}`
+- `POST /api/minds/{mind_id}/feedback`
 - `POST /api/minds/{mind_id}/delegate` (SSE)
 - `GET /api/minds/{mind_id}/tasks`
 - `GET /api/minds/{mind_id}/tasks/{task_id}`
 - `GET /api/minds/{mind_id}/memory`
+
+Mind learning supports both explicit feedback and implicit behavioral signals.
 
 ### Health
 - `GET /api/health`
