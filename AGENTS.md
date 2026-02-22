@@ -13,7 +13,7 @@ When in doubt, preserve compatibility and keep changes simple.
 ## 1) Monorepo Overview
 
 - `apps/backend` — FastAPI + `pi-agent-core` runtime
-- `apps/frontend` — Svelte + Vite app
+- `apps/frontend` — Svelte + Vite Spatial Mind Observatory UI
 - `apps/workflows` — archived legacy workflow JSON artifacts
 
 Root scripts (`package.json`):
@@ -51,6 +51,14 @@ Phase 1 scope intentionally simplified:
 ### B) Legacy Runtime (removed workflow path)
 Legacy workflow API endpoints and internal workflow execution modules have been removed.
 Only archived workflow JSON artifacts remain under `apps/workflows/`.
+
+### C) Frontend Observatory (current)
+The frontend is a single-view observatory experience (no sidebar page nav):
+- top bar: Mind selector + profile/create actions + Memory Vault access
+- center canvas: Nexus (Mind core) + task constellation
+- live panel: Activity Stream (Output / Trace)
+- bottom rail: persistent Commission Bar for delegation
+- overlays: Task Detail, Mind Profile/Create, Memory Vault
 
 ---
 
@@ -132,9 +140,11 @@ uv run uvicorn backend.main:app --reload --port 8100
 
 Run frontend:
 ```bash
-cd apps/frontend
-npm install
-npm run dev
+bun install
+bun run dev:frontend
+
+# or from apps/frontend:
+bun run dev
 ```
 
 ---
@@ -146,6 +156,7 @@ npm run dev
 - Preserve SSE message compatibility (`type` + `content` required; envelope fields are additive).
 - Keep docs aligned with implementation in `src/backend/`.
 - Mark legacy codepaths clearly with `LEGACY` comments/docstrings.
+- For filesystem discovery via `run_command`, prefer `rg` (content) and `fd` (file paths).
 
 ---
 

@@ -1,6 +1,6 @@
 # Culture Engine
 
-Culture Engine is a general-purpose delegation platform powered by autonomous **Minds** (with future **Drone** sub-agents).
+Culture Engine is a delegation platform powered by persistent autonomous **Minds** with explicit **Drone** sub-agent traces.
 
 ---
 
@@ -9,7 +9,7 @@ Culture Engine is a general-purpose delegation platform powered by autonomous **
 | Directory | Stack | Description |
 |---|---|---|
 | `apps/backend` | Python, FastAPI, pi-agent-core, SQLite | API for Mind delegation, task traces, and memory |
-| `apps/frontend` | Svelte, Vite, TypeScript | Web client scaffold |
+| `apps/frontend` | Svelte, Vite, TypeScript | Spatial Mind Observatory web client |
 
 ---
 
@@ -17,7 +17,8 @@ Culture Engine is a general-purpose delegation platform powered by autonomous **
 
 ### Prerequisites
 - [uv](https://docs.astral.sh/uv/)
-- Node.js 18+
+- [Bun](https://bun.sh/) 1.0+
+- Node.js 18+ (optional, only if you prefer npm in local workflows)
 
 ### 1) Run backend
 
@@ -31,12 +32,14 @@ uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8100
 ### 2) Run frontend
 
 ```bash
-cd apps/frontend
-npm install
-npm run dev
+bun install
+bun run dev:frontend
+
+# Or from apps/frontend:
+bun run dev
 ```
 
-- Frontend: `http://localhost:5174`
+- Frontend: `http://localhost:5173` (or next available port)
 - Backend: `http://localhost:8100`
 - Swagger: `http://localhost:8100/docs`
 
@@ -46,12 +49,16 @@ npm run dev
 
 ### Culture Engine (new)
 - `POST /api/minds`
+- `GET /api/minds`
 - `GET /api/minds/{mind_id}`
 - `PATCH /api/minds/{mind_id}`
 - `POST /api/minds/{mind_id}/feedback`
 - `POST /api/minds/{mind_id}/delegate` (SSE)
 - `GET /api/minds/{mind_id}/tasks`
 - `GET /api/minds/{mind_id}/tasks/{task_id}`
+- `GET /api/minds/{mind_id}/tasks/{task_id}/drones`
+- `GET /api/minds/{mind_id}/tasks/{task_id}/trace`
+- `GET /api/minds/{mind_id}/drones/{drone_id}/trace`
 - `GET /api/minds/{mind_id}/memory`
 
 Mind learning supports explicit feedback plus profile-update preference signals.
@@ -69,6 +76,10 @@ Mind learning supports explicit feedback plus profile-update preference signals.
   - memory primitives (`memory_save`, `memory_search`),
   - explicit sub-agent delegation (`spawn_agent`),
   - SQLite (WAL mode) persistence with FTS5 full-text memory search.
+- **Frontend observatory now active:**
+  - central Nexus + task constellation,
+  - persistent commission bar,
+  - Activity Stream (Output/Trace) and overlays for memory/task/profile views.
 - Deferred intentionally: runtime tool registration API and persistent dynamic tool store.
 
 Design principle: **simplify first, extend second**.

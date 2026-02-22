@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cd apps/backend
 
 uv sync                                                    # Install/update dependencies
-uv run uvicorn backend.main:app --reload --port 8000       # Start dev server
+uv run uvicorn backend.main:app --reload --port 8100       # Start dev server
 uv run pytest tests/test_mind_api.py tests/test_mind_persistence.py  # Run Mind unit tests
 uv run pytest tests/test_integration_mind_openrouter.py    # Run Mind OpenRouter integration test (requires env)
 ```
@@ -58,11 +58,9 @@ gh api repos/Huvinesh-Rajendran-12/culture-engine/pulls/$PR/reviews/$review_id/c
 3. **Apply minimal, compatible fixes**
 - Prioritize P1 security/reliability comments.
 - Preserve Mind API behavior and SSE event contract.
-- For connector code specifically:
-  - sanitize service names before file-path operations,
-  - isolate connector load/instantiation failures,
-  - close `httpx.AsyncClient` resources,
-  - avoid connector auto-build loops for unresolved connector failures.
+- Keep changes explicit and compatible with the simplified Mind runtime.
+- Keep run limits centralized in `mind/config.py`.
+- Ensure task and drone traces are persisted on both success and failure paths.
 
 4. **Run backend tests**
 
@@ -144,6 +142,7 @@ Mind runs persist three linked records:
 
 - All file tools resolve paths through `_resolve_path()` to prevent workspace escape
 - `run_command` runs in an isolated environment with a 30s timeout and 50 KB output cap
+- For filesystem search, prefer `rg` for content and `fd` for file/path discovery
 - Agent runs in a temp workspace directory, deleted on success
 
 ### Configuration
@@ -172,4 +171,8 @@ uv run python -m pytest tests/test_mind_api.py tests/test_mind_persistence.py
 
 ### Frontend
 
-Currently a frontend scaffold at `apps/frontend/`. The planned next phase is an SSE streaming UI centered on `/api/minds/{mind_id}/delegate` with task and memory inspection.
+Frontend now ships as a Spatial Mind Observatory at `apps/frontend/`:
+- single-view layout with central Nexus and orbital task constellation,
+- persistent commission bar for delegation,
+- Activity Stream with Output/Trace modes,
+- overlays for Task Detail, Mind Profile/Create, and Memory Vault.
