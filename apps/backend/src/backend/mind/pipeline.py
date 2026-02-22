@@ -45,19 +45,22 @@ async def delegate_to_mind(
     event_count = 0
     latest_text: str | None = None
     autosaved_memories = 0
+    run_failure_reason: str | None = None
 
-    start_event = {"type": "task_started", "content": {"task_id": task.id, "mind_id": mind_id}}
+    start_event = {
+        "type": "task_started",
+        "content": {"task_id": task.id, "mind_id": mind_id},
+    }
     _record(start_event)
     yield start_event
 
     memories = memory_manager.search(mind_id, description, top_k=8)
-    if memories:
-        memory_event = {
-            "type": "memory_context",
-            "content": {"count": len(memories), "memory_ids": [m.id for m in memories]},
-        }
-        _record(memory_event)
-        yield memory_event
+    memory_event = {
+        "type": "memory_context",
+        "content": {"count": len(memories), "memory_ids": [m.id for m in memories]},
+    }
+    _record(memory_event)
+    yield memory_event
 
     try:
         async for event in execute_task(
@@ -71,11 +74,33 @@ async def delegate_to_mind(
             if event_count > MAX_STREAM_EVENTS:
                 raise RuntimeError(f"Event limit reached ({MAX_STREAM_EVENTS})")
 
-            if event.get("type") == "text" and isinstance(event.get("content"), str):
-                latest_text = event["content"]
+            event_type = event.get("type")
+            content = event.get("content")
+
+            if event_type == "text" and isinstance(content, str):
+                latest_text = content
+
+            if event_type == "result" and isinstance(content, dict):
+                final_text = content.get("final_text")
+                if isinstance(final_text, str) and final_text.strip():
+                    latest_text = final_text.strip()
+
+                subtype = content.get("subtype")
+                error_message = content.get("error_message")
+                if isinstance(subtype, str) and subtype in {"error", "aborted"}:
+                    if isinstance(error_message, str) and error_message.strip():
+                        run_failure_reason = error_message.strip()
+                    else:
+                        run_failure_reason = f"Mind run ended with subtype={subtype}"
+
+            if event_type == "error" and isinstance(content, str) and content.strip():
+                run_failure_reason = content.strip()
 
             _record(event)
             yield event
+
+        if run_failure_reason:
+            raise RuntimeError(run_failure_reason)
 
         task.status = "completed"
         task.result = latest_text
@@ -83,15 +108,25 @@ async def delegate_to_mind(
         mind_store.save_task(mind_id, task)
 
         if latest_text and autosaved_memories < MAX_AUTOSAVE_MEMORIES_PER_RUN:
-            memory_manager.save(
-                MemoryEntry(
-                    mind_id=mind_id,
-                    content=f"Completed task: {description}\nResult: {latest_text}",
-                    category="task_result",
-                    relevance_keywords=["task", "result", "completion"],
-                )
+            memory = MemoryEntry(
+                mind_id=mind_id,
+                content=f"Completed task: {description}\nResult: {latest_text}",
+                category="task_result",
+                relevance_keywords=["task", "result", "completion"],
             )
+            memory_manager.save(memory)
             autosaved_memories += 1
+
+            memory_saved_event = {
+                "type": "memory_saved",
+                "content": {
+                    "id": memory.id,
+                    "mind_id": mind_id,
+                    "category": memory.category,
+                },
+            }
+            _record(memory_saved_event)
+            yield memory_saved_event
 
     except Exception as exc:
         task.status = "failed"

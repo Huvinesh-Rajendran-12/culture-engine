@@ -95,7 +95,10 @@ class MindApiTests(unittest.TestCase):
                     "is_error": False,
                 },
             }
-            yield {"type": "text", "content": "Done: drafted a concise release note summary."}
+            yield {
+                "type": "text",
+                "content": "Done: drafted a concise release note summary.",
+            }
             yield {"type": "result", "content": {"subtype": "completed"}}
 
         with patch("backend.mind.reasoning.run_agent", new=fake_run_agent):
@@ -109,10 +112,12 @@ class MindApiTests(unittest.TestCase):
 
         event_types = [evt["type"] for evt in events]
         self.assertIn("task_started", event_types)
+        self.assertIn("memory_context", event_types)
         self.assertIn("tool_registry", event_types)
         self.assertIn("tool_use", event_types)
         self.assertIn("tool_result", event_types)
         self.assertIn("result", event_types)
+        self.assertIn("memory_saved", event_types)
         self.assertIn("task_finished", event_types)
 
         tasks_resp = self.client.get(f"/api/minds/{mind_id}/tasks")
@@ -163,7 +168,9 @@ class MindApiTests(unittest.TestCase):
 
             leak_detected = False
             try:
-                read_result = await tools["read_file"].execute("parent_read", {"path": "artifact.txt"})
+                read_result = await tools["read_file"].execute(
+                    "parent_read", {"path": "artifact.txt"}
+                )
                 leak_detected = "from drone" in read_result.content[0].text
             except Exception:
                 leak_detected = False
@@ -175,13 +182,102 @@ class MindApiTests(unittest.TestCase):
             with self.client.stream(
                 "POST",
                 f"/api/minds/{mind_id}/delegate",
-                json={"description": "Run workspace isolation check", "team": "default"},
+                json={
+                    "description": "Run workspace isolation check",
+                    "team": "default",
+                },
             ) as response:
                 self.assertEqual(response.status_code, 200)
                 events = self._read_sse(response)
 
         text_events = [e.get("content") for e in events if e.get("type") == "text"]
-        self.assertTrue(any("drone_workspace_leak=False" in str(content) for content in text_events))
+        self.assertTrue(
+            any("drone_workspace_leak=False" in str(content) for content in text_events)
+        )
+
+    def test_result_final_text_is_persisted_and_saved_to_memory(self):
+        create_resp = self.client.post(
+            "/api/minds",
+            json={"name": "Signal"},
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        mind_id = create_resp.json()["id"]
+
+        async def fake_run_agent(*args, **kwargs):
+            yield {
+                "type": "result",
+                "content": {
+                    "subtype": "completed",
+                    "final_text": "Completed summary from final result payload.",
+                },
+            }
+
+        with patch("backend.mind.reasoning.run_agent", new=fake_run_agent):
+            with self.client.stream(
+                "POST",
+                f"/api/minds/{mind_id}/delegate",
+                json={"description": "Summarize launch plan", "team": "default"},
+            ) as response:
+                self.assertEqual(response.status_code, 200)
+                events = self._read_sse(response)
+
+        event_types = [evt["type"] for evt in events]
+        self.assertIn("memory_context", event_types)
+        self.assertIn("memory_saved", event_types)
+
+        tasks_resp = self.client.get(f"/api/minds/{mind_id}/tasks")
+        tasks = tasks_resp.json()
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["status"], "completed")
+        self.assertEqual(
+            tasks[0]["result"], "Completed summary from final result payload."
+        )
+
+        memory_resp = self.client.get(f"/api/minds/{mind_id}/memory")
+        memories = memory_resp.json()
+        self.assertEqual(len(memories), 1)
+        self.assertEqual(memories[0]["category"], "task_result")
+        self.assertIn(
+            "Completed summary from final result payload.", memories[0]["content"]
+        )
+
+    def test_error_result_marks_task_failed(self):
+        create_resp = self.client.post(
+            "/api/minds",
+            json={"name": "Signal"},
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        mind_id = create_resp.json()["id"]
+
+        async def fake_run_agent(*args, **kwargs):
+            yield {
+                "type": "result",
+                "content": {
+                    "subtype": "error",
+                    "error_message": "Upstream provider unavailable",
+                },
+            }
+
+        with patch("backend.mind.reasoning.run_agent", new=fake_run_agent):
+            with self.client.stream(
+                "POST",
+                f"/api/minds/{mind_id}/delegate",
+                json={"description": "Run failure check", "team": "default"},
+            ) as response:
+                self.assertEqual(response.status_code, 200)
+                events = self._read_sse(response)
+
+        event_types = [evt["type"] for evt in events]
+        self.assertIn("error", event_types)
+
+        finished = next(evt for evt in events if evt["type"] == "task_finished")
+        self.assertEqual(finished["content"]["status"], "failed")
+
+        tasks_resp = self.client.get(f"/api/minds/{mind_id}/tasks")
+        tasks = tasks_resp.json()
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["status"], "failed")
+        self.assertIn("Upstream provider unavailable", tasks[0]["result"])
 
 
 class MindStoreTests(unittest.TestCase):
@@ -222,11 +318,15 @@ class SpawnAgentToolTests(unittest.IsolatedAsyncioTestCase):
 
         tool = create_spawn_agent_tool(fake_spawn, max_calls=1, max_turns_cap=7)
 
-        first = await tool.execute("tc_1", {"objective": "Research pricing", "max_turns": 99})
+        first = await tool.execute(
+            "tc_1", {"objective": "Research pricing", "max_turns": 99}
+        )
         first_text = first.content[0].text
         self.assertIn("ok:Research pricing:7", first_text)
 
-        second = await tool.execute("tc_2", {"objective": "Write draft", "max_turns": 2})
+        second = await tool.execute(
+            "tc_2", {"objective": "Write draft", "max_turns": 2}
+        )
         second_text = second.content[0].text
         self.assertIn("call limit reached", second_text)
 

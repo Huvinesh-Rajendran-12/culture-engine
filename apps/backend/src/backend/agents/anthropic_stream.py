@@ -169,7 +169,7 @@ async def stream_anthropic(
     model: Model,
     context: AgentContext,
     options: SimpleStreamOptions,
-) -> AnthropicAsyncStream:
+) -> dict[str, Any]:
     stream = AnthropicAsyncStream()
 
     partial = AssistantMessage(
@@ -178,8 +178,17 @@ async def stream_anthropic(
         model=model.id,
     )
 
-    api_key = options.api_key or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    api_key = (
+        options.api_key
+        or os.environ.get("OPENROUTER_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+    )
     base_url = os.environ.get("ANTHROPIC_BASE_URL")
+
+    if not api_key:
+        raise RuntimeError(
+            "No API key configured. Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY."
+        )
 
     client_kwargs: dict[str, Any] = {"api_key": api_key}
     if base_url:
@@ -196,7 +205,9 @@ async def stream_anthropic(
     if context.system_prompt:
         kwargs["system"] = context.system_prompt
 
-    kwargs["max_tokens"] = options.max_tokens if options.max_tokens is not None else 8192
+    kwargs["max_tokens"] = (
+        options.max_tokens if options.max_tokens is not None else 8192
+    )
 
     if options.temperature is not None:
         kwargs["temperature"] = options.temperature
@@ -238,7 +249,11 @@ async def stream_anthropic(
 
         except Exception as error:
             error_message = str(error)
-            reason = "aborted" if (options.cancel_event and options.cancel_event.is_set()) else "error"
+            reason = (
+                "aborted"
+                if (options.cancel_event and options.cancel_event.is_set())
+                else "error"
+            )
             partial.stop_reason = reason
             partial.error_message = error_message
             stream.push(StreamErrorEvent(reason=reason, error=partial))
@@ -246,7 +261,10 @@ async def stream_anthropic(
             stream.end()
 
     asyncio.create_task(_run())
-    return stream
+    return {
+        "events": stream,
+        "result": stream.result,
+    }
 
 
 def _process_anthropic_event(
@@ -294,13 +312,21 @@ def _process_anthropic_event(
             content = partial.content[idx]
             if isinstance(content, TextContent):
                 content.text += delta.text
-            stream.push(StreamTextDeltaEvent(content_index=idx, delta=delta.text, partial=partial))
+            stream.push(
+                StreamTextDeltaEvent(
+                    content_index=idx, delta=delta.text, partial=partial
+                )
+            )
 
         elif delta.type == "thinking_delta":
             content = partial.content[idx]
             if isinstance(content, ThinkingContent):
                 content.thinking += delta.thinking
-            stream.push(StreamThinkingDeltaEvent(content_index=idx, delta=delta.thinking, partial=partial))
+            stream.push(
+                StreamThinkingDeltaEvent(
+                    content_index=idx, delta=delta.thinking, partial=partial
+                )
+            )
 
         elif delta.type == "input_json_delta":
             content = partial.content[idx]
@@ -311,7 +337,11 @@ def _process_anthropic_event(
                 tool_json_accumulators[idx] = content.partial_json
                 with contextlib.suppress(json.JSONDecodeError):
                     content.arguments = json.loads(content.partial_json)
-            stream.push(StreamToolCallDeltaEvent(content_index=idx, delta=delta.partial_json, partial=partial))
+            stream.push(
+                StreamToolCallDeltaEvent(
+                    content_index=idx, delta=delta.partial_json, partial=partial
+                )
+            )
 
     elif event_type == "content_block_stop":
         idx = event.index
@@ -320,12 +350,18 @@ def _process_anthropic_event(
         if block_type == "text":
             content = partial.content[idx]
             text = content.text if isinstance(content, TextContent) else ""
-            stream.push(StreamTextEndEvent(content_index=idx, content=text, partial=partial))
+            stream.push(
+                StreamTextEndEvent(content_index=idx, content=text, partial=partial)
+            )
 
         elif block_type == "thinking":
             content = partial.content[idx]
             thinking = content.thinking if isinstance(content, ThinkingContent) else ""
-            stream.push(StreamThinkingEndEvent(content_index=idx, content=thinking, partial=partial))
+            stream.push(
+                StreamThinkingEndEvent(
+                    content_index=idx, content=thinking, partial=partial
+                )
+            )
 
         elif block_type == "tool_use":
             content = partial.content[idx]
@@ -335,7 +371,11 @@ def _process_anthropic_event(
                     with contextlib.suppress(json.JSONDecodeError):
                         content.arguments = json.loads(accumulated)
                 content.partial_json = None
-                stream.push(StreamToolCallEndEvent(content_index=idx, tool_call=content, partial=partial))
+                stream.push(
+                    StreamToolCallEndEvent(
+                        content_index=idx, tool_call=content, partial=partial
+                    )
+                )
 
     elif event_type == "message_delta":
         if hasattr(event, "delta"):
