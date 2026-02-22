@@ -127,7 +127,7 @@
       <h2 class="modal-title">
         {mode === "create" ? "Create Mind" : "Mind Profile"}
       </h2>
-      <button type="button" class="modal-close" onclick={onClose}>\u00D7</button>
+      <button type="button" class="modal-close" onclick={onClose}>{"\u00D7"}</button>
     </div>
 
     {#if error}

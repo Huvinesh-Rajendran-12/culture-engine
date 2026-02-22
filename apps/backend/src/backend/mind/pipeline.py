@@ -138,6 +138,8 @@ def _build_runtime_manifest(
             "Single-path orchestration per delegation run.",
             "Sub-agents are explicit via spawn_agent; no implicit auto-splitting.",
             "Task traces and memories are persisted to SQLite for continuity.",
+            "For workspace discovery, use run_command with rg (content) and fd (file paths).",
+            "Keep filesystem searches scoped and bounded before reading large files.",
         ],
     }
 

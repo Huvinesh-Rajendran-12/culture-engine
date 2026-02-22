@@ -70,7 +70,7 @@
         <h2 class="modal-title">Task Detail</h2>
         <span class="modal-task-id">{task.id}</span>
       </div>
-      <button type="button" class="modal-close" onclick={onClose}>\u00D7</button>
+      <button type="button" class="modal-close" onclick={onClose}>{"\u00D7"}</button>
     </div>
 
     <div class="task-info">

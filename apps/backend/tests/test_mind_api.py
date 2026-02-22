@@ -667,6 +667,10 @@ class MindApiTests(unittest.TestCase):
         self.assertIn("spawn_agent_max_calls", system_prompt)
         self.assertIn("stream_event_limit", system_prompt)
         self.assertIn("text_delta_event_limit", system_prompt)
+        self.assertIn(
+            "run_command with rg (content) and fd (file paths)",
+            system_prompt,
+        )
         self.assertIn("Meta conversation policy:", system_prompt)
 
 

@@ -310,12 +310,19 @@ def create_culture_engine_tools(team: str, workspace_dir: str) -> list[AgentTool
         ),
         AgentTool(
             name="run_command",
-            description="Run a shell command in the workspace directory. Secrets are stripped from the environment. Commands time out after 30 seconds.",
+            description=(
+                "Run a shell command in the workspace directory. "
+                "Secrets are stripped from the environment and commands time out after 30 seconds. "
+                "For filesystem search, prefer rg for content and fd for file/path discovery."
+            ),
             parameters=AgentToolSchema(
                 properties={
                     "command": {
                         "type": "string",
-                        "description": "Shell command to execute.",
+                        "description": (
+                            "Shell command to execute. "
+                            "For filesystem search, prefer rg -n <pattern> <path> and fd <pattern> <path>."
+                        ),
                     },
                     "timeout": {
                         "type": "integer",

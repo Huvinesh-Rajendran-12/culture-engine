@@ -38,7 +38,7 @@
       {:else if item.kind === "spawn"}
         <div class="spawn-output" data-error={item.isError}>
           <div class="spawn-output-head">
-            <span class="spawn-output-glyph">\u2295</span>
+            <span class="spawn-output-glyph">{"\u2295"}</span>
             <span class="spawn-output-label">Sub-task delegated</span>
           </div>
           <p class="spawn-output-objective">{item.objective}</p>

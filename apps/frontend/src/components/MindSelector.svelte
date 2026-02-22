@@ -21,7 +21,7 @@
 <div class="mind-selector">
   <div class="selector-row">
     <div class="brand">
-      <span class="brand-glyph" aria-hidden="true">\u2B21</span>
+      <span class="brand-glyph" aria-hidden="true">{"\u2B21"}</span>
       <span class="brand-text">Culture Engine</span>
     </div>
 
@@ -35,7 +35,7 @@
 
       {#if selectedMind && onOpenProfile}
         <button type="button" class="selector-btn" onclick={onOpenProfile} title="Edit Mind profile">
-          \u25C9
+          {"\u25C9"}
         </button>
       {/if}
 

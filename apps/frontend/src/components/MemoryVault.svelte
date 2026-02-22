@@ -63,9 +63,9 @@
   <aside class="vault-drawer">
     <div class="vault-header">
       <h2 class="vault-title">
-        <span class="vault-glyph">\u2B21</span> Memory Vault
+        <span class="vault-glyph">{"\u2B21"}</span> Memory Vault
       </h2>
-      <button type="button" class="vault-close" onclick={onClose}>\u00D7</button>
+      <button type="button" class="vault-close" onclick={onClose}>{"\u00D7"}</button>
     </div>
 
     <div class="vault-search">
