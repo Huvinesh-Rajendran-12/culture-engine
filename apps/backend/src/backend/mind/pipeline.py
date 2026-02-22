@@ -34,6 +34,9 @@ def _merge_memory_context(
     *,
     limit: int,
 ) -> list[MemoryEntry]:
+    if limit <= 0:
+        return []
+
     merged: list[MemoryEntry] = []
     seen: set[str] = set()
 
