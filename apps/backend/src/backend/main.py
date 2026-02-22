@@ -9,9 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .mind.exceptions import MindNotFoundError, TaskNotFoundError, ValidationError
 from .mind.memory import MemoryManager
-from .mind.pipeline import delegate_to_mind
 from .mind.schema import MemoryEntry, MindCharter, MindProfile, Task
+from .mind.service import MindService
 from .mind.store import MindStore
 from .models import (
     DelegateTaskRequest,
@@ -70,92 +71,7 @@ if not CULTURE_DATA_DIR.exists() and LEGACY_MIND_DATA_DIR.exists():
 _DB_PATH = CULTURE_DATA_DIR / "culture.db"
 mind_store = MindStore(_DB_PATH)
 memory_manager = MemoryManager(_DB_PATH)
-
-
-def _preview(text: str, limit: int = 160) -> str:
-    cleaned = text.strip()
-    if len(cleaned) <= limit:
-        return cleaned
-    return f"{cleaned[:limit]}..."
-
-
-def _build_profile_update_signal(
-    before: MindProfile,
-    after: MindProfile,
-) -> MemoryEntry | None:
-    changes: list[str] = []
-    keywords = {"implicit_feedback", "profile_update", "preference_signal"}
-
-    if before.name != after.name:
-        changes.append(
-            f"- User renamed the mind from '{before.name}' to '{after.name}'."
-        )
-        keywords.add("identity_update")
-
-    if before.personality != after.personality:
-        changes.append(
-            "- User updated personality guidance to: "
-            f"'{_preview(after.personality or 'not set')}'."
-        )
-        keywords.add("personality_update")
-
-    if before.system_prompt != after.system_prompt:
-        changes.append(
-            "- User changed system prompt preference; new emphasis: "
-            f"'{_preview(after.system_prompt or 'not set')}'."
-        )
-        keywords.add("system_prompt_update")
-
-    if before.preferences != after.preferences:
-        before_keys = set(before.preferences.keys())
-        after_keys = set(after.preferences.keys())
-        changed_keys = sorted(before_keys | after_keys)
-        keys_text = ", ".join(changed_keys) if changed_keys else "none"
-        changes.append(f"- User changed preference JSON keys: {keys_text}.")
-        keywords.add("preferences_update")
-
-    if before.charter.mission != after.charter.mission:
-        changes.append(
-            "- User changed charter mission toward: "
-            f"'{_preview(after.charter.mission)}'."
-        )
-        keywords.add("charter_mission_update")
-
-    if before.charter.reason_for_existence != after.charter.reason_for_existence:
-        changes.append(
-            "- User updated reason-for-existence framing to: "
-            f"'{_preview(after.charter.reason_for_existence)}'."
-        )
-        keywords.add("charter_reason_update")
-
-    if before.charter.operating_principles != after.charter.operating_principles:
-        changes.append("- User revised operating principles.")
-        keywords.add("charter_principles_update")
-
-    if before.charter.non_goals != after.charter.non_goals:
-        changes.append("- User revised non-goals and boundaries.")
-        keywords.add("charter_non_goals_update")
-
-    if before.charter.reflection_focus != after.charter.reflection_focus:
-        changes.append("- User revised reflection focus priorities.")
-        keywords.add("charter_reflection_update")
-
-    if not changes:
-        return None
-
-    lines = [
-        "Inferred implicit feedback from profile update:",
-        f"Mind: {after.name} ({after.id})",
-        *changes,
-        "- Inference: treat these updates as stronger default user preferences until contradicted.",
-    ]
-
-    return MemoryEntry(
-        mind_id=after.id,
-        content="\n".join(lines),
-        category="implicit_feedback",
-        relevance_keywords=sorted(keywords),
-    )
+service = MindService(store=mind_store, memory=memory_manager)
 
 
 def _migrate_legacy_json(base_dir: Path) -> None:
@@ -270,135 +186,73 @@ def health():
 
 @app.post("/api/minds")
 def create_mind(request: MindCreateRequest):
-    mind = MindProfile(
+    mind = service.create_mind(
         name=request.name,
         personality=request.personality,
         preferences=request.preferences,
         system_prompt=request.system_prompt,
         charter=request.charter,
     )
-    mind_store.save_mind(mind)
     return mind.model_dump(mode="json")
 
 
 @app.get("/api/minds")
 def list_minds():
-    return [mind.model_dump(mode="json") for mind in mind_store.list_minds()]
+    return [mind.model_dump(mode="json") for mind in service.list_minds()]
 
 
 @app.get("/api/minds/{mind_id}")
 def get_mind(mind_id: str):
-    mind = mind_store.load_mind(mind_id)
-    if mind is None:
+    try:
+        return service.get_mind(mind_id).model_dump(mode="json")
+    except MindNotFoundError:
         raise HTTPException(status_code=404, detail="Mind not found")
-    return mind.model_dump(mode="json")
 
 
 @app.patch("/api/minds/{mind_id}")
 def update_mind(mind_id: str, request: MindUpdateRequest):
-    mind = mind_store.load_mind(mind_id)
-    if mind is None:
+    try:
+        mind = service.update_mind(
+            mind_id,
+            name=request.name,
+            personality=request.personality,
+            preferences=request.preferences,
+            system_prompt=request.system_prompt,
+            charter=request.charter,
+        )
+        return mind.model_dump(mode="json")
+    except MindNotFoundError:
         raise HTTPException(status_code=404, detail="Mind not found")
-
-    before = mind.model_copy(deep=True)
-
-    if request.name is not None:
-        mind.name = request.name
-
-    if request.personality is not None:
-        mind.personality = request.personality
-
-    if request.preferences is not None:
-        mind.preferences = request.preferences
-
-    if request.system_prompt is not None:
-        mind.system_prompt = request.system_prompt
-
-    if request.charter is not None:
-        charter_updates = request.charter.model_dump(exclude_none=True)
-        # Treat empty strings as "no change" so blank form fields don't wipe defaults
-        charter_updates = {
-            k: v
-            for k, v in charter_updates.items()
-            if not (isinstance(v, str) and v == "")
-        }
-        if charter_updates:
-            charter_data = mind.charter.model_dump(mode="python")
-            charter_data.update(charter_updates)
-            mind.charter = MindCharter.model_validate(charter_data)
-
-    mind_store.save_mind(mind)
-
-    implicit_signal = _build_profile_update_signal(before, mind)
-    if implicit_signal is not None:
-        memory_manager.save(implicit_signal)
-
-    return mind.model_dump(mode="json")
 
 
 @app.post("/api/minds/{mind_id}/feedback")
 def add_mind_feedback(mind_id: str, request: MindFeedbackRequest):
-    mind = mind_store.load_mind(mind_id)
-    if mind is None:
+    try:
+        memory = service.submit_feedback(
+            mind_id=mind_id,
+            content=request.content,
+            task_id=request.task_id,
+            rating=request.rating,
+            tags=request.tags,
+        )
+        return memory.model_dump(mode="json")
+    except MindNotFoundError:
         raise HTTPException(status_code=404, detail="Mind not found")
-
-    content = request.content.strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="Feedback content cannot be empty")
-
-    related_task = None
-    if request.task_id:
-        related_task = mind_store.load_task(mind_id, request.task_id)
-        if related_task is None:
-            raise HTTPException(status_code=404, detail="Task not found")
-
-    lines = [
-        "User feedback for Mind behavior:",
-        f"Mind: {mind.name} ({mind.id})",
-    ]
-
-    if request.task_id:
-        lines.append(f"Task ID: {request.task_id}")
-        if related_task is not None:
-            lines.append(f"Task description: {related_task.description}")
-
-    if request.rating is not None:
-        lines.append(f"Rating: {request.rating}/5")
-
-    lines.append(f"Feedback: {content}")
-
-    keywords = ["feedback", "user_preference", "alignment"]
-    if request.rating is not None and request.rating >= 4:
-        keywords.append("positive_feedback")
-    if request.rating is not None and request.rating <= 2:
-        keywords.append("corrective_feedback")
-
-    for tag in request.tags:
-        cleaned = tag.strip().lower().replace(" ", "_")
-        if cleaned:
-            keywords.append(cleaned)
-
-    memory = MemoryEntry(
-        mind_id=mind_id,
-        content="\n".join(lines),
-        category="user_feedback",
-        relevance_keywords=sorted(set(keywords)),
-    )
-    memory_manager.save(memory)
-    return memory.model_dump(mode="json")
+    except TaskNotFoundError:
+        raise HTTPException(status_code=404, detail="Task not found")
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/api/minds/{mind_id}/delegate")
 async def delegate_task(mind_id: str, request: DelegateTaskRequest):
     async def event_stream():
-        async for event in delegate_to_mind(
-            mind_store=mind_store,
-            memory_manager=memory_manager,
+        async for event in service.delegate(
             mind_id=mind_id,
             description=request.description,
             team=request.team,
         ):
-            yield f"data: {json.dumps(event, default=str)}\n\n"
+            yield f"data: {event.model_dump_json()}\n\n"
 
     return StreamingResponse(
         event_stream(),
@@ -412,53 +266,53 @@ async def delegate_task(mind_id: str, request: DelegateTaskRequest):
 
 @app.get("/api/minds/{mind_id}/tasks")
 def list_mind_tasks(mind_id: str):
-    mind = mind_store.load_mind(mind_id)
-    if mind is None:
+    try:
+        return [task.model_dump(mode="json") for task in service.list_tasks(mind_id)]
+    except MindNotFoundError:
         raise HTTPException(status_code=404, detail="Mind not found")
-    return [task.model_dump(mode="json") for task in mind_store.list_tasks(mind_id)]
 
 
 @app.get("/api/minds/{mind_id}/tasks/{task_id}")
 def get_mind_task(mind_id: str, task_id: str):
-    task = mind_store.load_task(mind_id, task_id)
-    if task is None:
+    try:
+        return service.get_task(mind_id, task_id).model_dump(mode="json")
+    except TaskNotFoundError:
         raise HTTPException(status_code=404, detail="Task not found")
-    return task.model_dump(mode="json")
 
 
 @app.get("/api/minds/{mind_id}/tasks/{task_id}/drones")
 def list_task_drones(mind_id: str, task_id: str):
-    task = mind_store.load_task(mind_id, task_id)
-    if task is None:
+    try:
+        return [
+            drone.model_dump(mode="json")
+            for drone in service.list_drones(mind_id, task_id)
+        ]
+    except TaskNotFoundError:
         raise HTTPException(status_code=404, detail="Task not found")
-    return [
-        drone.model_dump(mode="json")
-        for drone in mind_store.list_drones(mind_id, task_id)
-    ]
 
 
 @app.get("/api/minds/{mind_id}/drones/{drone_id}/trace")
 def get_drone_trace(mind_id: str, drone_id: str):
-    trace = mind_store.load_drone_trace(mind_id, drone_id)
-    if trace is None:
+    try:
+        return service.get_drone_trace(mind_id, drone_id)
+    except TaskNotFoundError:
         raise HTTPException(status_code=404, detail="Drone trace not found")
-    return trace
 
 
 @app.get("/api/minds/{mind_id}/tasks/{task_id}/trace")
 def get_mind_task_trace(mind_id: str, task_id: str):
-    trace = mind_store.load_task_trace(mind_id, task_id)
-    if trace is None:
+    try:
+        return service.get_task_trace(mind_id, task_id)
+    except TaskNotFoundError:
         raise HTTPException(status_code=404, detail="Task trace not found")
-    return trace
 
 
 @app.get("/api/minds/{mind_id}/memory")
 def list_mind_memory(mind_id: str, category: str | None = None):
-    mind = mind_store.load_mind(mind_id)
-    if mind is None:
+    try:
+        return [
+            m.model_dump(mode="json")
+            for m in service.list_memory(mind_id, category=category)
+        ]
+    except MindNotFoundError:
         raise HTTPException(status_code=404, detail="Mind not found")
-    return [
-        m.model_dump(mode="json")
-        for m in memory_manager.list_all(mind_id, category=category)
-    ]
