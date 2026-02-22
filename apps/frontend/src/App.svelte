@@ -158,8 +158,33 @@
   let runToolRegistry     = $derived(extractToolRegistry(runEvents));
   let runMemoryContextIds = $derived(extractMemoryContextIds(runEvents));
   let spawnRuns           = $derived(extractSpawnRuns(runEvents));
-  let runEventViews       = $derived(runEvents.map((e, i) => toEventView(e, i)));
-  let traceEventViews     = $derived((trace?.events ?? []).map((e, i) => toEventView(e, i)));
+  // Filter out text_delta chunks — they're accumulated into liveTypingText instead
+  let runEventViews       = $derived(
+    runEvents.filter((e) => e.type !== "text_delta").map((e, i) => toEventView(e, i))
+  );
+  let traceEventViews     = $derived(
+    (trace?.events ?? []).filter((e) => e.type !== "text_delta").map((e, i) => toEventView(e, i))
+  );
+  // Accumulate streaming text_delta chunks into a live buffer for the composing indicator
+  let liveTypingText      = $derived.by(() => {
+    let buffer = "";
+    for (const event of runEvents) {
+      // Reset on new task or when a completed text block arrives
+      if (event.type === "task_started" || event.type === "text") {
+        buffer = "";
+      }
+      if (event.type === "text_delta") {
+        const c = event.content;
+        if (typeof c === "string") {
+          buffer += c;
+        } else {
+          const obj = asObject(c);
+          if (typeof obj.text === "string") buffer += obj.text;
+        }
+      }
+    }
+    return buffer;
+  });
   let memoryCategories    = $derived(buildMemoryCategories(memories));
   let filteredMemories    = $derived(filterMemories(memories, memorySearch, memoryCategory));
 
@@ -938,6 +963,28 @@
                   {/if}
                 </article>
               {/each}
+
+              <!-- Live composing indicator: replaces text_delta flood -->
+              {#if busy && liveTypingText}
+                <div class="composing-block">
+                  <div class="composing-header">
+                    <span class="composing-dot"></span>
+                    <span class="composing-dot"></span>
+                    <span class="composing-dot"></span>
+                    <span class="composing-label">Mind composing</span>
+                  </div>
+                  <p class="composing-text">{liveTypingText}</p>
+                </div>
+              {:else if busy}
+                <div class="composing-block composing-idle">
+                  <div class="composing-header">
+                    <span class="composing-dot"></span>
+                    <span class="composing-dot"></span>
+                    <span class="composing-dot"></span>
+                    <span class="composing-label">Mind is working</span>
+                  </div>
+                </div>
+              {/if}
             {/if}
           </div>
         </section>
