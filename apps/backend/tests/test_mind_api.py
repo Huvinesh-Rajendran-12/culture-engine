@@ -419,6 +419,28 @@ class MindApiTests(unittest.TestCase):
         )
         self.assertTrue(custom_mind["charter"]["reason_for_existence"])
 
+    def test_get_mind_self_knowledge(self):
+        create_resp = self.client.post(
+            "/api/minds",
+            json={"name": "SelfAware"},
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        mind_id = create_resp.json()["id"]
+
+        resp = self.client.get(f"/api/minds/{mind_id}/self")
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+
+        self.assertEqual(payload["identity"]["mind_id"], mind_id)
+        self.assertEqual(payload["identity"]["mind_name"], "SelfAware")
+        self.assertIn("runtime", payload)
+        self.assertIn("program_parts", payload)
+        self.assertIn("self_programming_paths", payload)
+
+    def test_get_mind_self_knowledge_unknown_mind(self):
+        resp = self.client.get("/api/minds/missing/self")
+        self.assertEqual(resp.status_code, 404)
+
     def test_patch_mind_updates_profile_and_charter_fields(self):
         create_resp = self.client.post(
             "/api/minds",
@@ -677,6 +699,9 @@ class MindApiTests(unittest.TestCase):
         self.assertIn("spawn_agent_max_calls", system_prompt)
         self.assertIn("stream_event_limit", system_prompt)
         self.assertIn("text_delta_event_limit", system_prompt)
+        self.assertIn("Self-knowledge manifest:", system_prompt)
+        self.assertIn("Program parts:", system_prompt)
+        self.assertIn("Runtime architecture: direct_anthropic_openrouter_loop", system_prompt)
         self.assertIn(
             "run_command with rg (content) and fd (file paths)",
             system_prompt,

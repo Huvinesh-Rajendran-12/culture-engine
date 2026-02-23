@@ -68,6 +68,32 @@ def build_system_prompt(
         if isinstance(team, str) and team.strip():
             lines.append(f"- Team context: {team.strip()}")
 
+        self_knowledge = runtime_manifest.get("self_knowledge")
+        if isinstance(self_knowledge, dict):
+            lines.append("Self-knowledge manifest:")
+
+            identity = self_knowledge.get("identity")
+            if isinstance(identity, dict):
+                mind_id = identity.get("mind_id")
+                if isinstance(mind_id, str) and mind_id:
+                    lines.append(f"- Mind ID: {mind_id}")
+
+            runtime = self_knowledge.get("runtime")
+            if isinstance(runtime, dict):
+                architecture = runtime.get("architecture")
+                if isinstance(architecture, str) and architecture:
+                    lines.append(f"- Runtime architecture: {architecture}")
+
+            program_parts = self_knowledge.get("program_parts")
+            if isinstance(program_parts, list) and program_parts:
+                lines.append("- Program parts:")
+                for part in program_parts[:6]:
+                    if isinstance(part, dict):
+                        name = part.get("name")
+                        path = part.get("path")
+                        if isinstance(name, str) and isinstance(path, str):
+                            lines.append(f"  - {name}: {path}")
+
     if memories:
         lines.append("Relevant long-term memory:")
         for item in memories[:MAX_MEMORY_CONTEXT_ITEMS]:

@@ -25,6 +25,7 @@ from .config import (
 from .memory import MemoryManager
 from .reasoning import build_system_prompt
 from .schema import Drone, MemoryEntry, MindProfile, Task
+from .self_knowledge import build_self_knowledge_manifest
 from .store import MindStore
 from .tools import create_mind_tools, tool_names
 
@@ -113,6 +114,7 @@ def _build_autonomous_insight(
 
 def _build_runtime_manifest(
     *,
+    mind: MindProfile,
     team: str,
     tools: list[str],
     max_turns: int,
@@ -121,7 +123,7 @@ def _build_runtime_manifest(
     text_delta_event_limit: int | None,
     autosave_memory_limit: int | None,
 ) -> dict[str, Any]:
-    return {
+    manifest = {
         "team": team,
         "tool_names": tools,
         "limits": {
@@ -145,6 +147,17 @@ def _build_runtime_manifest(
             "Keep filesystem searches scoped and bounded before reading large files.",
         ],
     }
+    manifest["self_knowledge"] = build_self_knowledge_manifest(
+        mind=mind,
+        team=team,
+        tool_names=tools,
+        max_turns=max_turns,
+        include_spawn_agent=include_spawn_agent,
+        stream_event_limit=stream_event_limit,
+        text_delta_event_limit=text_delta_event_limit,
+        autosave_memory_limit=autosave_memory_limit,
+    )
+    return manifest
 
 
 async def execute_task(
@@ -188,6 +201,7 @@ async def execute_task(
                     )
                     drone_tool_names = tool_names(drone_tools)
                     drone_manifest = _build_runtime_manifest(
+                        mind=mind,
                         team=team,
                         tools=drone_tool_names,
                         max_turns=max_turns,
@@ -242,6 +256,7 @@ async def execute_task(
         )
         tools_for_run = tool_names(tools)
         runtime_manifest = _build_runtime_manifest(
+            mind=mind,
             team=team,
             tools=tools_for_run,
             max_turns=DEFAULT_MIND_MAX_TURNS,
