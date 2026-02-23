@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-from .database import init_db
+from .database import create_connection, init_db
 from .schema import Drone, MindProfile, Task
 
 
@@ -15,13 +15,22 @@ class MindStore:
     """Stores Mind profiles and task history in SQLite."""
 
     def __init__(self, db_path: Path):
-        self._conn = init_db(db_path)
-        self._lock = threading.Lock()
+        self._db_path = db_path
+        conn = init_db(db_path)
+        conn.close()
+
+    @contextmanager
+    def _connect(self):
+        conn = create_connection(self._db_path)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def save_mind(self, mind: MindProfile) -> str:
         """Save a Mind profile. Returns the Mind ID."""
-        with self._lock:
-            self._conn.execute(
+        with self._connect() as conn:
+            conn.execute(
                 """INSERT OR REPLACE INTO minds
                    (id, name, personality, preferences, system_prompt, charter, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -35,13 +44,13 @@ class MindStore:
                     mind.created_at.isoformat(),
                 ),
             )
-            self._conn.commit()
+            conn.commit()
         return mind.id
 
     def load_mind(self, mind_id: str) -> Optional[MindProfile]:
         """Load a Mind profile by ID."""
-        with self._lock:
-            row = self._conn.execute(
+        with self._connect() as conn:
+            row = conn.execute(
                 "SELECT * FROM minds WHERE id = ?", (mind_id,)
             ).fetchone()
         if row is None:
@@ -50,23 +59,23 @@ class MindStore:
 
     def list_minds(self) -> list[MindProfile]:
         """List all Mind profiles."""
-        with self._lock:
-            rows = self._conn.execute(
+        with self._connect() as conn:
+            rows = conn.execute(
                 "SELECT * FROM minds ORDER BY created_at"
             ).fetchall()
         return [_row_to_mind(row) for row in rows]
 
     def delete_mind(self, mind_id: str) -> bool:
         """Delete a Mind profile."""
-        with self._lock:
-            cursor = self._conn.execute("DELETE FROM minds WHERE id = ?", (mind_id,))
-            self._conn.commit()
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM minds WHERE id = ?", (mind_id,))
+            conn.commit()
         return cursor.rowcount > 0
 
     def save_task(self, mind_id: str, task: Task) -> str:
         """Save a task to a Mind's task history."""
-        with self._lock:
-            self._conn.execute(
+        with self._connect() as conn:
+            conn.execute(
                 """INSERT OR REPLACE INTO tasks
                    (id, mind_id, description, status, result, created_at, completed_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -80,13 +89,13 @@ class MindStore:
                     task.completed_at.isoformat() if task.completed_at else None,
                 ),
             )
-            self._conn.commit()
+            conn.commit()
         return task.id
 
     def load_task(self, mind_id: str, task_id: str) -> Optional[Task]:
         """Load a specific task."""
-        with self._lock:
-            row = self._conn.execute(
+        with self._connect() as conn:
+            row = conn.execute(
                 "SELECT * FROM tasks WHERE id = ? AND mind_id = ?",
                 (task_id, mind_id),
             ).fetchone()
@@ -96,8 +105,8 @@ class MindStore:
 
     def list_tasks(self, mind_id: str) -> list[Task]:
         """List all tasks for a Mind, most recent first."""
-        with self._lock:
-            rows = self._conn.execute(
+        with self._connect() as conn:
+            rows = conn.execute(
                 "SELECT * FROM tasks WHERE mind_id = ? ORDER BY created_at DESC",
                 (mind_id,),
             ).fetchall()
@@ -105,18 +114,18 @@ class MindStore:
 
     def save_task_trace(self, mind_id: str, task_id: str, events: list[dict]) -> None:
         """Persist task execution trace events."""
-        with self._lock:
-            self._conn.execute(
+        with self._connect() as conn:
+            conn.execute(
                 """INSERT OR REPLACE INTO task_traces (mind_id, task_id, events)
                    VALUES (?, ?, ?)""",
                 (mind_id, task_id, json.dumps(events, default=str)),
             )
-            self._conn.commit()
+            conn.commit()
 
     def load_task_trace(self, mind_id: str, task_id: str) -> Optional[dict]:
         """Load a persisted task trace by task ID."""
-        with self._lock:
-            row = self._conn.execute(
+        with self._connect() as conn:
+            row = conn.execute(
                 "SELECT * FROM task_traces WHERE mind_id = ? AND task_id = ?",
                 (mind_id, task_id),
             ).fetchone()
@@ -132,8 +141,8 @@ class MindStore:
 
     def save_drone(self, drone: Drone) -> str:
         """Save a Drone record. Returns the Drone ID."""
-        with self._lock:
-            self._conn.execute(
+        with self._connect() as conn:
+            conn.execute(
                 """INSERT OR REPLACE INTO drones
                    (id, mind_id, task_id, objective, status, result, created_at, completed_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -148,13 +157,13 @@ class MindStore:
                     drone.completed_at.isoformat() if drone.completed_at else None,
                 ),
             )
-            self._conn.commit()
+            conn.commit()
         return drone.id
 
     def list_drones(self, mind_id: str, task_id: str) -> list[Drone]:
         """List all drones spawned for a specific task."""
-        with self._lock:
-            rows = self._conn.execute(
+        with self._connect() as conn:
+            rows = conn.execute(
                 "SELECT * FROM drones WHERE mind_id = ? AND task_id = ? ORDER BY created_at",
                 (mind_id, task_id),
             ).fetchall()
@@ -164,18 +173,18 @@ class MindStore:
         self, mind_id: str, drone_id: str, events: list[dict]
     ) -> None:
         """Persist drone execution trace events."""
-        with self._lock:
-            self._conn.execute(
+        with self._connect() as conn:
+            conn.execute(
                 """INSERT OR REPLACE INTO drone_traces (mind_id, drone_id, events)
                    VALUES (?, ?, ?)""",
                 (mind_id, drone_id, json.dumps(events, default=str)),
             )
-            self._conn.commit()
+            conn.commit()
 
     def load_drone_trace(self, mind_id: str, drone_id: str) -> Optional[dict]:
         """Load a persisted drone trace by drone ID."""
-        with self._lock:
-            row = self._conn.execute(
+        with self._connect() as conn:
+            row = conn.execute(
                 "SELECT * FROM drone_traces WHERE mind_id = ? AND drone_id = ?",
                 (mind_id, drone_id),
             ).fetchone()

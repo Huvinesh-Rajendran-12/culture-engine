@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import re
-import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-from .database import init_db
+from .database import create_connection, init_db
 from .schema import MemoryEntry
 
 
@@ -16,13 +16,22 @@ class MemoryManager:
     """Manages persistent memory for a Mind using SQLite + FTS5."""
 
     def __init__(self, db_path: Path):
-        self._conn = init_db(db_path)
-        self._lock = threading.Lock()
+        self._db_path = db_path
+        conn = init_db(db_path)
+        conn.close()
+
+    @contextmanager
+    def _connect(self):
+        conn = create_connection(self._db_path)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def save(self, entry: MemoryEntry) -> str:
         """Persist a memory entry. Returns the memory ID."""
-        with self._lock:
-            self._conn.execute(
+        with self._connect() as conn:
+            conn.execute(
                 """INSERT OR REPLACE INTO memories
                    (id, mind_id, content, category, relevance_keywords, created_at)
                    VALUES (?, ?, ?, ?, ?, ?)""",
@@ -35,13 +44,13 @@ class MemoryManager:
                     entry.created_at.isoformat(),
                 ),
             )
-            self._conn.commit()
+            conn.commit()
         return entry.id
 
     def retrieve(self, mind_id: str, memory_id: str) -> Optional[MemoryEntry]:
         """Load a specific memory by ID."""
-        with self._lock:
-            row = self._conn.execute(
+        with self._connect() as conn:
+            row = conn.execute(
                 "SELECT * FROM memories WHERE id = ? AND mind_id = ?",
                 (memory_id, mind_id),
             ).fetchone()
@@ -55,8 +64,8 @@ class MemoryManager:
         if not fts_query:
             return []
 
-        with self._lock:
-            rows = self._conn.execute(
+        with self._connect() as conn:
+            rows = conn.execute(
                 """SELECT m.* FROM memories m
                    JOIN memories_fts ON memories_fts.rowid = m.rowid
                    WHERE memories_fts MATCH ? AND m.mind_id = ?
@@ -68,14 +77,14 @@ class MemoryManager:
 
     def list_all(self, mind_id: str, category: Optional[str] = None) -> list[MemoryEntry]:
         """List all memories for a Mind, optionally filtered by category."""
-        with self._lock:
+        with self._connect() as conn:
             if category is not None:
-                rows = self._conn.execute(
+                rows = conn.execute(
                     "SELECT * FROM memories WHERE mind_id = ? AND category = ? ORDER BY created_at",
                     (mind_id, category),
                 ).fetchall()
             else:
-                rows = self._conn.execute(
+                rows = conn.execute(
                     "SELECT * FROM memories WHERE mind_id = ? ORDER BY created_at",
                     (mind_id,),
                 ).fetchall()
@@ -83,12 +92,12 @@ class MemoryManager:
 
     def delete(self, mind_id: str, memory_id: str) -> bool:
         """Delete a specific memory."""
-        with self._lock:
-            cursor = self._conn.execute(
+        with self._connect() as conn:
+            cursor = conn.execute(
                 "DELETE FROM memories WHERE id = ? AND mind_id = ?",
                 (memory_id, mind_id),
             )
-            self._conn.commit()
+            conn.commit()
         return cursor.rowcount > 0
 
 
