@@ -106,7 +106,7 @@ SSE events use a typed `Event` envelope: `{"id": ..., "type": ..., "seq": ..., "
 
 | Package | Responsibility |
 |---|---|
-| `agents/base.py` | `run_agent()` — wraps `pi-agent-core`, translates events to SSE dicts |
+| `agents/base.py` | `run_agent()` — minimal Anthropic/OpenRouter loop, emits normalized SSE dict events |
 | `agents/tools.py` | `DEFAULT_TOOL_NAMES` — central allowlist; file read/write/edit, run_command, search_apis, search_knowledge_base |
 | `agents/api_catalog.py` | Searchable catalog of service actions |
 | `agents/kb_search.py` | Keyword search over KB markdown sections |

@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 
-from pi_agent_core import AgentTool, AgentToolResult, AgentToolSchema, TextContent
+from .types import AgentTool, AgentToolResult, AgentToolSchema, TextContent
 
 from .api_catalog import search_api_catalog
 from .kb_search import search_knowledge_base

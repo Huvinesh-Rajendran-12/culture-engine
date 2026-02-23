@@ -6,7 +6,7 @@ FastAPI backend for the Culture Engine path: persistent Mind delegation.
 
 - Python 3.11+
 - FastAPI
-- pi-agent-core
+- Anthropic SDK (direct minimal agent loop)
 - Anthropic/OpenRouter (Anthropic-compatible API)
 
 ## Setup

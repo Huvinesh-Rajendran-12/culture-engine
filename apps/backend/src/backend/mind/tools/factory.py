@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from pi_agent_core import AgentTool
+from ...agents.types import AgentTool
 
 from ...agents.tools import create_culture_engine_tools
 from ..memory import MemoryManager

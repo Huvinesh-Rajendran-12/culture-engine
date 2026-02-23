@@ -12,7 +12,7 @@ When in doubt, preserve compatibility and keep changes simple.
 
 ## 1) Monorepo Overview
 
-- `apps/backend` — FastAPI + `pi-agent-core` runtime
+- `apps/backend` — FastAPI + direct Anthropic/OpenRouter runtime
 - `apps/frontend` — Svelte + Vite Spatial Mind Observatory UI
 - `apps/workflows` — archived legacy workflow JSON artifacts
 
@@ -65,8 +65,8 @@ The frontend is a single-view observatory experience (no sidebar page nav):
 ## 3) Backend Architecture (`apps/backend/src/backend`)
 
 ### Stable shared layer
-- `agents/base.py` — shared `run_agent(...)` wrapper over `pi-agent-core`
-- `agents/anthropic_stream.py` — Anthropic/OpenRouter stream adapter
+- `agents/base.py` — shared `run_agent(...)` wrapper over direct Anthropic/OpenRouter calls
+- `agents/anthropic_stream.py` — LEGACY compatibility shim (no longer used by runtime)
 - SSE event contract (`type` + `content`) must remain compatible; new envelope fields are additive only
 
 ### Culture Engine layer

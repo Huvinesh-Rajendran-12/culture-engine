@@ -6,7 +6,7 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from pi_agent_core import AgentTool, AgentToolResult, AgentToolSchema, TextContent
+from ...agents.types import AgentTool, AgentToolResult, AgentToolSchema, TextContent
 
 from ..config import (
     DEFAULT_MEMORY_SAVE_MAX_CALLS,

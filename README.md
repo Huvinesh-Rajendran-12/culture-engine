@@ -8,7 +8,7 @@ Culture Engine is a delegation platform powered by persistent autonomous **Minds
 
 | Directory | Stack | Description |
 |---|---|---|
-| `apps/backend` | Python, FastAPI, pi-agent-core, SQLite | API for Mind delegation, task traces, and memory |
+| `apps/backend` | Python, FastAPI, Anthropic SDK, SQLite | API for Mind delegation, task traces, and memory |
 | `apps/frontend` | Svelte, Vite, TypeScript | Spatial Mind Observatory web client |
 
 ---

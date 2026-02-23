@@ -1,25 +1,22 @@
-"""Base agent runner using pi-agent-core for Culture Engine."""
+"""Minimal Anthropic/OpenRouter agent runner for Culture Engine."""
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Optional
+import json
+from collections.abc import AsyncGenerator
+from typing import Any, Optional
 
-from pi_agent_core import (
-    Agent,
-    AgentEvent,
-    AgentOptions,
-    AgentTool,
-    AssistantMessage,
-    Model,
-    TextContent,
-    ToolCall,
-)
+import anthropic
 
 from ..config import get_settings
-from .anthropic_stream import stream_anthropic
 from .tools import DEFAULT_TOOL_NAMES, create_culture_engine_tools
+from .types import AgentTool, AgentToolResult, TextContent
+
+_STOP_REASON_MAP: dict[str, str] = {
+    "end_turn": "stop",
+    "max_tokens": "length",
+    "tool_use": "toolUse",
+}
 
 
 def _resolve_model_id(model_name: str, *, use_openrouter: bool = False) -> str:
@@ -39,220 +36,70 @@ def _resolve_model_id(model_name: str, *, use_openrouter: bool = False) -> str:
     return aliases.get(model_name, model_name)
 
 
-def _extract_text_blocks(message: AssistantMessage | None) -> list[str]:
-    if not isinstance(message, AssistantMessage):
-        return []
+def _extract_tool_result_text(result: AgentToolResult | None) -> str:
+    if result is None:
+        return ""
 
-    text_blocks: list[str] = []
-    for block in message.content:
-        if isinstance(block, TextContent) and block.text.strip():
-            text_blocks.append(block.text)
-    return text_blocks
-
-
-def _extract_tool_calls(message: AssistantMessage | None) -> list[ToolCall]:
-    if not isinstance(message, AssistantMessage):
-        return []
-    return [block for block in message.content if isinstance(block, ToolCall)]
-
-
-def _extract_tool_result_text(result: Any) -> str:
     chunks: list[str] = []
-
-    if result and getattr(result, "content", None):
-        for content_block in result.content:
-            if getattr(content_block, "type", None) == "text":
-                chunks.append(content_block.text)
+    for block in result.content:
+        if isinstance(block, TextContent) and block.text:
+            chunks.append(block.text)
 
     return "\n".join(chunks).strip()
 
 
-def _last_assistant_message(messages: list[Any] | None) -> AssistantMessage | None:
-    if not messages:
+def _normalize_stop_reason(reason: str | None) -> str | None:
+    if reason is None:
         return None
-
-    for message in reversed(messages):
-        if isinstance(message, AssistantMessage):
-            return message
-
-    return None
+    return _STOP_REASON_MAP.get(reason, reason)
 
 
-def _usage_dict(message: AssistantMessage | None) -> dict[str, Any] | None:
-    if not isinstance(message, AssistantMessage):
-        return None
+def _usage_dict(message: Any) -> dict[str, Any] | None:
     usage = getattr(message, "usage", None)
     if usage is None:
         return None
+
+    input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+    output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+
+    payload: dict[str, Any] = {
+        "input": input_tokens,
+        "output": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+    }
+
     if hasattr(usage, "model_dump"):
-        return usage.model_dump()
-    if isinstance(usage, dict):
-        return usage
-    return None
+        payload["raw"] = usage.model_dump(mode="json")
+
+    return payload
 
 
-@dataclass
-class _EventTranslator:
-    emitted_tool_use_ids: set[str] = field(default_factory=set)
-    emitted_errors: set[str] = field(default_factory=set)
-    emitted_text_events: int = 0
-
-    def _tool_use_event(
-        self,
-        *,
-        tool_name: str,
-        tool_input: Any,
-        tool_use_id: str | None,
-    ) -> dict[str, Any] | None:
-        if tool_use_id and tool_use_id in self.emitted_tool_use_ids:
-            return None
-        if tool_use_id:
-            self.emitted_tool_use_ids.add(tool_use_id)
-
-        return {
-            "type": "tool_use",
-            "content": {
-                "tool": tool_name,
-                "input": tool_input or {},
-                "id": tool_use_id,
+def _tool_params(tools: list[AgentTool]) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": {
+                "type": tool.parameters.type,
+                "properties": tool.parameters.properties,
+                "required": tool.parameters.required,
             },
         }
+        for tool in tools
+    ]
 
-    def _error_event(self, message: str | None) -> dict[str, Any] | None:
-        if not message:
-            return None
-        cleaned = message.strip()
-        if not cleaned or cleaned in self.emitted_errors:
-            return None
-        self.emitted_errors.add(cleaned)
-        return {"type": "error", "content": cleaned}
 
-    def _translate_message_update(self, event: AgentEvent) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-
-        stream_event = getattr(event, "assistant_message_event", None)
-        stream_type = getattr(stream_event, "type", None)
-
-        if stream_type == "text_delta":
-            delta = getattr(stream_event, "delta", "")
-            if isinstance(delta, str) and delta:
-                out.append({"type": "text_delta", "content": delta})
-
-        elif stream_type == "toolcall_end":
-            tool_call = getattr(stream_event, "tool_call", None)
-            if isinstance(tool_call, ToolCall):
-                payload = self._tool_use_event(
-                    tool_name=getattr(tool_call, "name", ""),
-                    tool_input=getattr(tool_call, "arguments", {}),
-                    tool_use_id=getattr(tool_call, "id", None),
-                )
-                if payload:
-                    out.append(payload)
-
-        return out
-
-    def translate(self, event: AgentEvent) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-
-        if event.type == "message_update":
-            out.extend(self._translate_message_update(event))
-
-        elif event.type == "message_end" and isinstance(
-            event.message, AssistantMessage
-        ):
-            for text_block in _extract_text_blocks(event.message):
-                self.emitted_text_events += 1
-                out.append({"type": "text", "content": text_block})
-
-            for tool_call in _extract_tool_calls(event.message):
-                payload = self._tool_use_event(
-                    tool_name=getattr(tool_call, "name", ""),
-                    tool_input=getattr(tool_call, "arguments", {}),
-                    tool_use_id=getattr(tool_call, "id", None),
-                )
-                if payload:
-                    out.append(payload)
-
-            maybe_error = self._error_event(
-                getattr(event.message, "error_message", None)
-            )
-            if maybe_error:
-                out.append(maybe_error)
-
-        elif event.type == "tool_execution_start":
-            payload = self._tool_use_event(
-                tool_name=getattr(event, "tool_name", ""),
-                tool_input=getattr(event, "args", {}),
-                tool_use_id=getattr(event, "tool_call_id", None),
-            )
-            if payload:
-                out.append(payload)
-
-        elif event.type == "tool_execution_end":
-            out.append(
-                {
-                    "type": "tool_result",
-                    "content": {
-                        "tool_use_id": event.tool_call_id,
-                        "tool": event.tool_name,
-                        "result": _extract_tool_result_text(event.result),
-                        "is_error": event.is_error,
-                    },
-                }
-            )
-
-            if event.is_error:
-                maybe_error = self._error_event(
-                    _extract_tool_result_text(event.result)
-                    or f"Tool failed: {event.tool_name}"
-                )
-                if maybe_error:
-                    out.append(maybe_error)
-
-        elif event.type == "turn_end":
-            assistant = (
-                event.message if isinstance(event.message, AssistantMessage) else None
-            )
-            maybe_error = self._error_event(getattr(assistant, "error_message", None))
-            if maybe_error:
-                out.append(maybe_error)
-
-        elif event.type == "agent_end":
-            assistant = _last_assistant_message(event.messages)
-            usage = _usage_dict(assistant)
-            final_text = "\n".join(_extract_text_blocks(assistant)).strip() or None
-            stop_reason = getattr(assistant, "stop_reason", None)
-            error_message = getattr(assistant, "error_message", None)
-
-            subtype = "completed"
-            if error_message or stop_reason in {"error", "aborted"}:
-                subtype = stop_reason or "error"
-
-            if final_text and self.emitted_text_events == 0:
-                self.emitted_text_events += 1
-                out.append({"type": "text", "content": final_text})
-
-            out.append(
-                {
-                    "type": "result",
-                    "content": {
-                        "subtype": subtype,
-                        "stop_reason": stop_reason,
-                        "final_text": final_text,
-                        "error_message": error_message,
-                        "cost_usd": usage.get("cost", {}).get("total", 0)
-                        if usage
-                        else 0,
-                        "usage": usage,
-                    },
-                }
-            )
-
-            maybe_error = self._error_event(error_message)
-            if maybe_error:
-                out.append(maybe_error)
-
-        return out
+def _error_payload_once(
+    message: str | None,
+    emitted_errors: set[str],
+) -> dict[str, Any] | None:
+    if not isinstance(message, str):
+        return None
+    cleaned = message.strip()
+    if not cleaned or cleaned in emitted_errors:
+        return None
+    emitted_errors.add(cleaned)
+    return {"type": "error", "content": cleaned}
 
 
 async def run_agent(
@@ -264,7 +111,10 @@ async def run_agent(
     tools_override: Optional[list[AgentTool]] = None,
     max_turns: int = 50,
 ) -> AsyncGenerator[dict[str, Any], None]:
-    """Run a pi-agent-core agent and yield streaming events."""
+    """Run a minimal agent loop and yield normalized stream events.
+
+    The loop is intentionally simple: request → optional tool execution → continue.
+    """
     settings = get_settings()
 
     use_openrouter = bool(settings.openrouter_api_key) or (
@@ -273,7 +123,8 @@ async def run_agent(
     )
 
     all_tools = tools_override or create_culture_engine_tools(
-        team=team, workspace_dir=workspace_dir
+        team=team,
+        workspace_dir=workspace_dir,
     )
 
     if allowed_tools is None:
@@ -284,67 +135,277 @@ async def run_agent(
 
     tool_set = set(allowed_tools)
     tools = [tool for tool in all_tools if tool.name in tool_set]
+    tools_by_name = {tool.name: tool for tool in tools}
 
-    agent = Agent(
-        AgentOptions(
-            stream_fn=stream_anthropic,
-            get_api_key=lambda _provider: (
-                settings.openrouter_api_key
-                or settings.anthropic_auth_token
-                or settings.anthropic_api_key
-            ),
-        )
+    api_key = (
+        settings.openrouter_api_key
+        or settings.anthropic_auth_token
+        or settings.anthropic_api_key
     )
 
-    agent.set_model(
-        Model(
-            api="anthropic-messages",
-            provider="anthropic",
-            id=_resolve_model_id(settings.default_model, use_openrouter=use_openrouter),
-        )
-    )
-    agent.set_system_prompt(system_prompt)
-    agent.set_tools(tools)
+    emitted_tool_use_ids: set[str] = set()
+    emitted_errors: set[str] = set()
+    emitted_text_events = 0
 
-    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-    turn_count = 0
-    translator = _EventTranslator()
+    if not api_key:
+        message = "No API key configured. Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY."
+        yield {
+            "type": "result",
+            "content": {
+                "subtype": "error",
+                "stop_reason": "error",
+                "final_text": None,
+                "error_message": message,
+                "cost_usd": 0,
+                "usage": None,
+            },
+        }
+        maybe_error = _error_payload_once(message, emitted_errors)
+        if maybe_error:
+            yield maybe_error
+        return
 
-    def on_event(event: AgentEvent) -> None:
-        nonlocal turn_count
+    client_kwargs: dict[str, Any] = {"api_key": api_key}
+    if settings.anthropic_base_url:
+        client_kwargs["base_url"] = settings.anthropic_base_url
 
-        if event.type == "turn_end":
-            turn_count += 1
-            if turn_count >= max_turns:
-                agent.abort()
-                queue.put_nowait(
-                    {
-                        "type": "error",
-                        "content": f"Max turns reached ({max_turns}). Aborting run.",
-                    }
-                )
+    client = anthropic.AsyncAnthropic(**client_kwargs)
+    model_id = _resolve_model_id(settings.default_model, use_openrouter=use_openrouter)
 
-        for payload in translator.translate(event):
-            queue.put_nowait(payload)
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": prompt}],
+        }
+    ]
 
-    unsubscribe = agent.subscribe(on_event)
-
-    async def _run_prompt() -> None:
-        try:
-            await agent.prompt(prompt)
-        except Exception as e:
-            queue.put_nowait({"type": "error", "content": str(e)})
-        finally:
-            queue.put_nowait(None)
-
-    task = asyncio.create_task(_run_prompt())
+    turns = 0
+    run_error: str | None = None
+    forced_subtype: str | None = None
+    last_assistant_message: Any = None
 
     try:
         while True:
-            item = await queue.get()
-            if item is None:
+            if turns >= max_turns:
+                forced_subtype = "aborted"
+                run_error = f"Max turns reached ({max_turns}). Aborting run."
+                maybe_error = _error_payload_once(run_error, emitted_errors)
+                if maybe_error:
+                    yield maybe_error
                 break
-            yield item
-    finally:
-        unsubscribe()
-        await task
+
+            turns += 1
+
+            request: dict[str, Any] = {
+                "model": model_id,
+                "messages": messages,
+                "max_tokens": 8192,
+            }
+
+            if system_prompt:
+                request["system"] = system_prompt
+
+            if tools:
+                request["tools"] = _tool_params(tools)
+
+            message = await client.messages.create(**request)
+            last_assistant_message = message
+
+            assistant_content: list[dict[str, Any]] = []
+            tool_calls: list[dict[str, Any]] = []
+
+            for block in getattr(message, "content", []):
+                block_type = getattr(block, "type", "")
+
+                if block_type == "text":
+                    text = getattr(block, "text", "")
+                    assistant_content.append({"type": "text", "text": text})
+                    if isinstance(text, str) and text.strip():
+                        emitted_text_events += 1
+                        yield {"type": "text", "content": text}
+                    continue
+
+                if block_type == "thinking":
+                    thinking_block: dict[str, Any] = {
+                        "type": "thinking",
+                        "thinking": getattr(block, "thinking", ""),
+                    }
+                    signature = getattr(block, "signature", None)
+                    if isinstance(signature, str) and signature:
+                        thinking_block["signature"] = signature
+                    assistant_content.append(thinking_block)
+                    continue
+
+                if block_type == "redacted_thinking":
+                    assistant_content.append(
+                        {
+                            "type": "redacted_thinking",
+                            "data": getattr(block, "data", ""),
+                        }
+                    )
+                    continue
+
+                if block_type != "tool_use":
+                    continue
+
+                raw_tool_call_id = getattr(block, "id", "")
+                event_tool_call_id = (
+                    raw_tool_call_id
+                    if isinstance(raw_tool_call_id, str) and raw_tool_call_id
+                    else None
+                )
+                tool_call_id = event_tool_call_id or f"tool_auto_{turns}_{len(tool_calls) + 1}"
+                tool_name = getattr(block, "name", "")
+                tool_input = getattr(block, "input", {}) or {}
+
+                if not isinstance(tool_input, dict):
+                    with_json = {}
+                    if isinstance(tool_input, str):
+                        try:
+                            with_json = json.loads(tool_input)
+                        except json.JSONDecodeError:
+                            with_json = {"raw": tool_input}
+                    tool_input = with_json
+
+                assistant_content.append(
+                    {
+                        "type": "tool_use",
+                        "id": tool_call_id,
+                        "name": tool_name,
+                        "input": tool_input,
+                    }
+                )
+
+                if event_tool_call_id:
+                    if event_tool_call_id not in emitted_tool_use_ids:
+                        emitted_tool_use_ids.add(event_tool_call_id)
+                        yield {
+                            "type": "tool_use",
+                            "content": {
+                                "tool": tool_name,
+                                "input": tool_input,
+                                "id": event_tool_call_id,
+                            },
+                        }
+                else:
+                    yield {
+                        "type": "tool_use",
+                        "content": {
+                            "tool": tool_name,
+                            "input": tool_input,
+                            "id": None,
+                        },
+                    }
+
+                tool_calls.append(
+                    {
+                        "id": tool_call_id,
+                        "name": tool_name,
+                        "input": tool_input,
+                    }
+                )
+
+            if assistant_content:
+                messages.append({"role": "assistant", "content": assistant_content})
+
+            if not tool_calls:
+                break
+
+            tool_results: list[dict[str, Any]] = []
+
+            for call in tool_calls:
+                tool_id = call["id"] if isinstance(call["id"], str) else ""
+                tool_name = call["name"] if isinstance(call["name"], str) else ""
+                tool_input = call["input"] if isinstance(call["input"], dict) else {}
+
+                tool = tools_by_name.get(tool_name)
+                is_error = False
+
+                if tool is None:
+                    tool_result_text = f"Tool {tool_name} not found"
+                    is_error = True
+                else:
+                    try:
+                        result = await tool.execute(tool_id, tool_input)
+                        tool_result_text = _extract_tool_result_text(result)
+                    except Exception as exc:  # pragma: no cover - defensive boundary
+                        tool_result_text = str(exc)
+                        is_error = True
+
+                yield {
+                    "type": "tool_result",
+                    "content": {
+                        "tool_use_id": tool_id or None,
+                        "tool": tool_name,
+                        "result": tool_result_text,
+                        "is_error": is_error,
+                    },
+                }
+
+                if is_error:
+                    maybe_error = _error_payload_once(tool_result_text, emitted_errors)
+                    if maybe_error:
+                        yield maybe_error
+
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": tool_result_text,
+                        "is_error": is_error,
+                    }
+                )
+
+            if tool_results:
+                messages.append({"role": "user", "content": tool_results})
+
+    except Exception as exc:  # pragma: no cover - transport/network boundary
+        forced_subtype = "error"
+        run_error = str(exc)
+        maybe_error = _error_payload_once(run_error, emitted_errors)
+        if maybe_error:
+            yield maybe_error
+
+    stop_reason = _normalize_stop_reason(
+        getattr(last_assistant_message, "stop_reason", None)
+    )
+
+    text_blocks: list[str] = []
+    if last_assistant_message is not None:
+        for block in getattr(last_assistant_message, "content", []):
+            if getattr(block, "type", "") != "text":
+                continue
+            text = getattr(block, "text", "")
+            if isinstance(text, str) and text.strip():
+                text_blocks.append(text)
+
+    final_text = "\n".join(text_blocks).strip() or None
+
+    subtype = forced_subtype or "completed"
+    if not forced_subtype:
+        if run_error:
+            subtype = "error"
+        elif stop_reason in {"error", "aborted"}:
+            subtype = stop_reason
+
+    if final_text and emitted_text_events == 0:
+        emitted_text_events += 1
+        yield {"type": "text", "content": final_text}
+
+    usage = _usage_dict(last_assistant_message)
+
+    yield {
+        "type": "result",
+        "content": {
+            "subtype": subtype,
+            "stop_reason": stop_reason,
+            "final_text": final_text,
+            "error_message": run_error,
+            "cost_usd": 0,
+            "usage": usage,
+        },
+    }
+
+    maybe_error = _error_payload_once(run_error, emitted_errors)
+    if maybe_error:
+        yield maybe_error
