@@ -12,7 +12,12 @@ from collections.abc import AsyncGenerator
 from typing import Any, Optional
 
 from .events import Event, EventStream
-from .exceptions import MindNotFoundError, TaskNotFoundError, ValidationError
+from .exceptions import (
+    DroneNotFoundError,
+    MindNotFoundError,
+    TaskNotFoundError,
+    ValidationError,
+)
 from .memory import MemoryManager
 from .pipeline import delegate_to_mind
 from .schema import Drone, MemoryEntry, MindCharter, MindProfile, Task
@@ -172,11 +177,6 @@ class MindService:
                 if hasattr(charter, "model_dump")
                 else charter
             )
-            charter_updates = {
-                k: v
-                for k, v in charter_updates.items()
-                if not (isinstance(v, str) and v == "")
-            }
             if charter_updates:
                 charter_data = mind.charter.model_dump(mode="python")
                 charter_data.update(charter_updates)
@@ -295,7 +295,7 @@ class MindService:
     def get_drone_trace(self, mind_id: str, drone_id: str) -> dict:
         trace = self.store.load_drone_trace(mind_id, drone_id)
         if trace is None:
-            raise TaskNotFoundError(f"Drone trace for '{drone_id}' not found")
+            raise DroneNotFoundError(f"Drone trace for '{drone_id}' not found")
         return trace
 
     # ── Memory ─────────────────────────────────────────────────────────────

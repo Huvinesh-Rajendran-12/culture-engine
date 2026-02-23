@@ -184,8 +184,18 @@ class TestDelegateAgentErrorResult(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(types[-1], "task_finished")
         self.assertEqual(events[-1]["content"]["status"], "failed")
 
-        # Error event emitted
-        self.assertIn("error", types)
+        # Avoid double error signaling when result subtype=error already emitted.
+        error_events = [e for e in events if e["type"] == "error"]
+        self.assertEqual(len(error_events), 0)
+
+        result_error_events = [
+            e
+            for e in events
+            if e["type"] == "result"
+            and isinstance(e.get("content"), dict)
+            and e["content"].get("subtype") == "error"
+        ]
+        self.assertEqual(len(result_error_events), 1)
 
         # Insight still saved on failure
         insight_events = [

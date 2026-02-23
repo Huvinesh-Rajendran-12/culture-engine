@@ -99,7 +99,7 @@ END;
 
 def create_connection(db_path: Path) -> sqlite3.Connection:
     """Create a configured SQLite connection (WAL, foreign keys, busy timeout)."""
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA busy_timeout=5000")

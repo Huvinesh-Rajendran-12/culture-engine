@@ -49,7 +49,7 @@ class EventStream:
         self._trace_id = trace_id
         self._seq = 0
 
-    async def __aiter__(self):  # noqa: ANN204
+    async def __aiter__(self) -> AsyncGenerator[Event, None]:
         async for raw_event in self._raw:
             event = Event(
                 type=raw_event.get("type", "unknown"),

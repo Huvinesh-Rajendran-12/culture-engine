@@ -66,8 +66,13 @@ class MindStore:
         return [_row_to_mind(row) for row in rows]
 
     def delete_mind(self, mind_id: str) -> bool:
-        """Delete a Mind profile."""
+        """Delete a Mind profile and all associated persisted records."""
         with self._connect() as conn:
+            conn.execute("DELETE FROM task_traces WHERE mind_id = ?", (mind_id,))
+            conn.execute("DELETE FROM drone_traces WHERE mind_id = ?", (mind_id,))
+            conn.execute("DELETE FROM drones WHERE mind_id = ?", (mind_id,))
+            conn.execute("DELETE FROM tasks WHERE mind_id = ?", (mind_id,))
+            conn.execute("DELETE FROM memories WHERE mind_id = ?", (mind_id,))
             cursor = conn.execute("DELETE FROM minds WHERE id = ?", (mind_id,))
             conn.commit()
         return cursor.rowcount > 0
@@ -198,15 +203,13 @@ class MindStore:
 
 
 def _row_to_mind(row: dict) -> MindProfile:
-    charter = row["charter"] if "charter" in row.keys() else "{}"
-
     return MindProfile(
         id=row["id"],
         name=row["name"],
         personality=row["personality"],
         preferences=json.loads(row["preferences"]),
         system_prompt=row["system_prompt"],
-        charter=json.loads(charter or "{}"),
+        charter=json.loads(row["charter"] or "{}"),
         created_at=row["created_at"],
     )
 

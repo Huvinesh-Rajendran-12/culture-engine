@@ -5,12 +5,19 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from backend.mind.exceptions import MindNotFoundError, TaskNotFoundError, ValidationError
+from backend.mind.events import Event
+from backend.mind.exceptions import (
+    DroneNotFoundError,
+    MindNotFoundError,
+    TaskNotFoundError,
+    ValidationError,
+)
 from backend.mind.memory import MemoryManager
-from backend.mind.schema import MindCharter, Task
+from backend.mind.schema import Drone, MindCharter, Task
 from backend.mind.service import MindService
 from backend.mind.store import MindStore
 
@@ -140,6 +147,13 @@ class TestUpdateMind(unittest.TestCase):
         memories = self.memory.list_all(mind.id, category="implicit_feedback")
         self.assertEqual(len(memories), 0)
 
+    def test_charter_string_fields_can_be_cleared(self):
+        mind = self.svc.create_mind(name="C")
+        self.svc.update_mind(mind.id, charter={"mission": "Non-empty"})
+
+        cleared = self.svc.update_mind(mind.id, charter={"mission": ""})
+        self.assertEqual(cleared.charter.mission, "")
+
     def test_nonexistent_mind_raises(self):
         with self.assertRaises(MindNotFoundError):
             self.svc.update_mind("ghost", name="Nope")
@@ -243,6 +257,109 @@ class TestListAndGetTasks(unittest.TestCase):
         mind = self.svc.create_mind(name="T")
         with self.assertRaises(TaskNotFoundError):
             self.svc.get_task(mind.id, "no_such_task")
+
+
+class TestTracesAndDrones(unittest.TestCase):
+    def setUp(self):
+        self._tmp = Path(tempfile.mkdtemp(prefix="svc-traces-drones-"))
+        db = self._tmp / "test.db"
+        self.store = MindStore(db)
+        self.memory = MemoryManager(db)
+        self.svc = MindService(self.store, self.memory)
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_get_task_trace_returns_trace(self):
+        mind = self.svc.create_mind(name="T")
+        task = Task(mind_id=mind.id, description="Traced task")
+        self.store.save_task(mind.id, task)
+        self.store.save_task_trace(mind.id, task.id, [{"type": "text", "content": "hi"}])
+
+        trace = self.svc.get_task_trace(mind.id, task.id)
+        self.assertEqual(trace["task_id"], task.id)
+        self.assertEqual(len(trace["events"]), 1)
+
+    def test_get_task_trace_missing_raises(self):
+        mind = self.svc.create_mind(name="T")
+        with self.assertRaises(TaskNotFoundError):
+            self.svc.get_task_trace(mind.id, "missing-task")
+
+    def test_list_drones_returns_drones(self):
+        mind = self.svc.create_mind(name="D")
+        task = Task(mind_id=mind.id, description="Parent task")
+        self.store.save_task(mind.id, task)
+
+        d1 = Drone(mind_id=mind.id, task_id=task.id, objective="o1", status="completed")
+        d2 = Drone(mind_id=mind.id, task_id=task.id, objective="o2", status="failed")
+        self.store.save_drone(d1)
+        self.store.save_drone(d2)
+
+        drones = self.svc.list_drones(mind.id, task.id)
+        self.assertEqual(len(drones), 2)
+
+    def test_list_drones_missing_task_raises(self):
+        mind = self.svc.create_mind(name="D")
+        with self.assertRaises(TaskNotFoundError):
+            self.svc.list_drones(mind.id, "missing-task")
+
+    def test_get_drone_trace_returns_trace(self):
+        mind = self.svc.create_mind(name="D")
+        drone = Drone(mind_id=mind.id, task_id="task-1", objective="x", status="completed")
+        self.store.save_drone_trace(mind.id, drone.id, [{"type": "text", "content": "drone"}])
+
+        trace = self.svc.get_drone_trace(mind.id, drone.id)
+        self.assertEqual(trace["drone_id"], drone.id)
+        self.assertEqual(len(trace["events"]), 1)
+
+    def test_get_drone_trace_missing_raises_drone_not_found(self):
+        mind = self.svc.create_mind(name="D")
+        with self.assertRaises(DroneNotFoundError):
+            self.svc.get_drone_trace(mind.id, "missing-drone")
+
+
+class TestDelegateEventEnvelope(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self._tmp = Path(tempfile.mkdtemp(prefix="svc-delegate-"))
+        db = self._tmp / "test.db"
+        self.store = MindStore(db)
+        self.memory = MemoryManager(db)
+        self.svc = MindService(self.store, self.memory)
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    @staticmethod
+    async def _collect(stream):
+        events = []
+        async for event in stream:
+            events.append(event)
+        return events
+
+    @staticmethod
+    async def _raw_events():
+        yield {"type": "a", "content": {"x": 1}}
+        yield {"type": "b", "content": "done"}
+
+    @patch("backend.mind.service.delegate_to_mind")
+    async def test_delegate_wraps_events_with_envelope_fields(self, mock_delegate):
+        mock_delegate.return_value = self._raw_events()
+
+        events = await self._collect(
+            self.svc.delegate("mind-1", "Run task", team="default")
+        )
+
+        self.assertEqual(len(events), 2)
+        self.assertTrue(all(isinstance(e, Event) for e in events))
+        self.assertEqual([e.seq for e in events], [0, 1])
+        self.assertEqual(events[0].type, "a")
+        self.assertEqual(events[1].type, "b")
+        self.assertEqual(events[0].content, {"x": 1})
+        self.assertEqual(events[1].content, "done")
+        self.assertEqual(events[0].trace_id, events[1].trace_id)
+        self.assertTrue(events[0].trace_id)
+        self.assertTrue(events[0].id)
+        self.assertTrue(events[0].ts)
 
 
 class TestListMemory(unittest.TestCase):

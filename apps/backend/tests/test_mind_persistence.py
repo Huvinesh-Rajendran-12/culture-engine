@@ -10,7 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from backend.mind.database import init_db
 from backend.mind.memory import MemoryManager
-from backend.mind.schema import MemoryEntry, MindCharter, MindProfile, Task
+from backend.mind.schema import Drone, MemoryEntry, MindCharter, MindProfile, Task
 from backend.mind.store import MindStore
 
 
@@ -98,12 +98,33 @@ class MindStoreSqliteTests(unittest.TestCase):
             self.assertEqual(loaded.name, "TestMind")
             self.assertEqual(loaded.personality, "friendly")
 
+            task = Task(mind_id=mind.id, description="cleanup candidate")
+            store.save_task(mind.id, task)
+            store.save_task_trace(mind.id, task.id, [{"type": "text", "content": "hi"}])
+            drone = store.save_drone(
+                Drone(
+                    mind_id=mind.id,
+                    task_id=task.id,
+                    objective="subtask",
+                    status="completed",
+                )
+            )
+            store.save_drone_trace(mind.id, drone, [{"type": "text", "content": "ok"}])
+            MemoryManager(tmp_dir / "test.db").save(
+                MemoryEntry(mind_id=mind.id, content="memory to delete")
+            )
+
             minds = store.list_minds()
             self.assertEqual(len(minds), 1)
 
             deleted = store.delete_mind(mind.id)
             self.assertTrue(deleted)
             self.assertIsNone(store.load_mind(mind.id))
+            self.assertEqual(store.list_tasks(mind.id), [])
+            self.assertIsNone(store.load_task_trace(mind.id, task.id))
+            self.assertEqual(store.list_drones(mind.id, task.id), [])
+            self.assertIsNone(store.load_drone_trace(mind.id, drone))
+            self.assertEqual(MemoryManager(tmp_dir / "test.db").list_all(mind.id), [])
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -236,6 +257,19 @@ class MemoryFtsTests(unittest.TestCase):
             manager = MemoryManager(tmp_dir / "test.db")
             results = manager.search("mind_1", "")
             self.assertEqual(results, [])
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def test_search_supports_non_latin_tokens(self):
+        tmp_dir = Path(tempfile.mkdtemp(prefix="memory-unicode-tests-"))
+        try:
+            manager = MemoryManager(tmp_dir / "test.db")
+            mind_id = "mind_1"
+
+            manager.save(MemoryEntry(mind_id=mind_id, content="今日は新しい計画を立てる"))
+            results = manager.search(mind_id, "計画")
+            self.assertEqual(len(results), 1)
+            self.assertIn("計画", results[0].content)
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 

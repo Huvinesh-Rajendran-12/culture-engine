@@ -9,7 +9,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .mind.exceptions import MindNotFoundError, TaskNotFoundError, ValidationError
+from .mind.exceptions import (
+    DroneNotFoundError,
+    MindNotFoundError,
+    TaskNotFoundError,
+    ValidationError,
+)
 from .mind.memory import MemoryManager
 from .mind.schema import MemoryEntry, MindCharter, MindProfile, Task
 from .mind.service import MindService
@@ -295,7 +300,7 @@ def list_task_drones(mind_id: str, task_id: str):
 def get_drone_trace(mind_id: str, drone_id: str):
     try:
         return service.get_drone_trace(mind_id, drone_id)
-    except TaskNotFoundError:
+    except DroneNotFoundError:
         raise HTTPException(status_code=404, detail="Drone trace not found")
 
 

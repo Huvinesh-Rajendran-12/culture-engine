@@ -156,9 +156,6 @@ async def execute_task(
     memories: list[MemoryEntry],
     memory_manager: MemoryManager,
     mind_store: MindStore,
-    stream_event_limit: int | None = None,
-    text_delta_event_limit: int | None = None,
-    autosave_memory_limit: int | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Execute one task with one Mind run.
 
@@ -195,9 +192,9 @@ async def execute_task(
                         tools=drone_tool_names,
                         max_turns=max_turns,
                         include_spawn_agent=False,
-                        stream_event_limit=stream_event_limit,
-                        text_delta_event_limit=text_delta_event_limit,
-                        autosave_memory_limit=autosave_memory_limit,
+                        stream_event_limit=MAX_STREAM_EVENTS,
+                        text_delta_event_limit=MAX_TEXT_DELTA_EVENTS,
+                        autosave_memory_limit=MAX_AUTOSAVE_MEMORIES_PER_RUN,
                     )
 
                     async for event in run_agent(
@@ -249,9 +246,9 @@ async def execute_task(
             tools=tools_for_run,
             max_turns=DEFAULT_MIND_MAX_TURNS,
             include_spawn_agent=True,
-            stream_event_limit=stream_event_limit,
-            text_delta_event_limit=text_delta_event_limit,
-            autosave_memory_limit=autosave_memory_limit,
+            stream_event_limit=MAX_STREAM_EVENTS,
+            text_delta_event_limit=MAX_TEXT_DELTA_EVENTS,
+            autosave_memory_limit=MAX_AUTOSAVE_MEMORIES_PER_RUN,
         )
 
         yield {
@@ -306,6 +303,7 @@ async def delegate_to_mind(
     autosaved_memories = 0
     autosaved_insights = 0
     run_failure_reason: str | None = None
+    emitted_terminal_result_error = False
     feedback_memories: list[MemoryEntry] = []
     implicit_feedback_memories: list[MemoryEntry] = []
 
@@ -395,9 +393,6 @@ async def delegate_to_mind(
             memories=memories,
             memory_manager=memory_manager,
             mind_store=mind_store,
-            stream_event_limit=MAX_STREAM_EVENTS,
-            text_delta_event_limit=MAX_TEXT_DELTA_EVENTS,
-            autosave_memory_limit=MAX_AUTOSAVE_MEMORIES_PER_RUN,
         ):
             event_type = event.get("type")
             content = event.get("content")
@@ -424,6 +419,7 @@ async def delegate_to_mind(
                 subtype = content.get("subtype")
                 error_message = content.get("error_message")
                 if isinstance(subtype, str) and subtype in {"error", "aborted"}:
+                    emitted_terminal_result_error = True
                     if isinstance(error_message, str) and error_message.strip():
                         run_failure_reason = error_message.strip()
                     else:
@@ -474,9 +470,13 @@ async def delegate_to_mind(
         task.result = str(exc)
         task.completed_at = datetime.now(timezone.utc)
         mind_store.save_task(mind_id, task)
-        error_event = {"type": "error", "content": f"Mind execution failed: {exc}"}
-        _record(error_event)
-        yield error_event
+        should_emit_error_event = not (
+            emitted_terminal_result_error and run_failure_reason == str(exc)
+        )
+        if should_emit_error_event:
+            error_event = {"type": "error", "content": f"Mind execution failed: {exc}"}
+            _record(error_event)
+            yield error_event
 
         insight_saved_event = _save_autonomous_insight(
             status=task.status,

@@ -6,6 +6,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
+from backend.mind.config import MAX_MEMORY_CONTEXT_ITEMS
 from backend.mind.events import Event, EventStream
 from backend.mind.memory import _build_fts_query
 from backend.mind.pipeline import (
@@ -289,6 +290,17 @@ class TestBuildSystemPrompt(unittest.TestCase):
         prompt = build_system_prompt(self._mind(), [], manifest)
         self.assertIn("run_command", prompt)
         self.assertIn("max_turns", prompt)
+
+    def test_memory_context_respects_configured_cap(self):
+        memories = [
+            _mem(content=f"memory-{i}", mind_id="m1", id=f"m{i}")
+            for i in range(MAX_MEMORY_CONTEXT_ITEMS + 2)
+        ]
+        prompt = build_system_prompt(self._mind(), memories)
+
+        for i in range(MAX_MEMORY_CONTEXT_ITEMS):
+            self.assertIn(f"memory-{i}", prompt)
+        self.assertNotIn(f"memory-{MAX_MEMORY_CONTEXT_ITEMS}", prompt)
 
     def test_includes_meta_conversation_policy(self):
         prompt = build_system_prompt(self._mind(), [])

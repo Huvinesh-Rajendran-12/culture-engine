@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .config import MAX_MEMORY_CONTEXT_ITEMS
 from .schema import MemoryEntry, MindProfile
 
 
@@ -69,7 +70,7 @@ def build_system_prompt(
 
     if memories:
         lines.append("Relevant long-term memory:")
-        for item in memories[:10]:
+        for item in memories[:MAX_MEMORY_CONTEXT_ITEMS]:
             content = item.content if len(item.content) <= 400 else f"{item.content[:400]}..."
             lines.append(f"- ({item.category or 'general'}) {content}")
 

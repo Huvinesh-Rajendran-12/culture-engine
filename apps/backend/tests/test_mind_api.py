@@ -274,7 +274,17 @@ class MindApiTests(unittest.TestCase):
                 events = self._read_sse(response)
 
         event_types = [evt["type"] for evt in events]
-        self.assertIn("error", event_types)
+        self.assertIn("result", event_types)
+        self.assertNotIn("error", event_types)
+
+        error_results = [
+            evt
+            for evt in events
+            if evt["type"] == "result"
+            and isinstance(evt.get("content"), dict)
+            and evt["content"].get("subtype") == "error"
+        ]
+        self.assertEqual(len(error_results), 1)
 
         finished = next(evt for evt in events if evt["type"] == "task_finished")
         self.assertEqual(finished["content"]["status"], "failed")

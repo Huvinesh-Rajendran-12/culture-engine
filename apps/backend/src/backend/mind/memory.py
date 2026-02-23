@@ -59,20 +59,38 @@ class MemoryManager:
         return _row_to_memory(row)
 
     def search(self, mind_id: str, query: str, top_k: int = 10) -> list[MemoryEntry]:
-        """Search memories using FTS5 full-text search."""
-        fts_query = _build_fts_query(query)
-        if not fts_query:
+        """Search memories using FTS5 full-text search.
+
+        Falls back to a scoped LIKE query when FTS tokenization yields no hits
+        (e.g., some non-Latin scripts depending on tokenizer behavior).
+        """
+        query_text = query.strip()
+        if not query_text:
             return []
 
+        fts_query = _build_fts_query(query_text)
+
         with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT m.* FROM memories m
-                   JOIN memories_fts ON memories_fts.rowid = m.rowid
-                   WHERE memories_fts MATCH ? AND m.mind_id = ?
-                   ORDER BY memories_fts.rank
-                   LIMIT ?""",
-                (fts_query, mind_id, top_k),
-            ).fetchall()
+            rows = []
+            if fts_query:
+                rows = conn.execute(
+                    """SELECT m.* FROM memories m
+                       JOIN memories_fts ON memories_fts.rowid = m.rowid
+                       WHERE memories_fts MATCH ? AND m.mind_id = ?
+                       ORDER BY memories_fts.rank
+                       LIMIT ?""",
+                    (fts_query, mind_id, top_k),
+                ).fetchall()
+
+            if not rows:
+                rows = conn.execute(
+                    """SELECT * FROM memories
+                       WHERE mind_id = ? AND content LIKE ?
+                       ORDER BY created_at DESC
+                       LIMIT ?""",
+                    (mind_id, f"%{query_text}%", top_k),
+                ).fetchall()
+
         return [_row_to_memory(row) for row in rows]
 
     def list_all(self, mind_id: str, category: Optional[str] = None) -> list[MemoryEntry]:
@@ -113,8 +131,11 @@ def _row_to_memory(row: dict) -> MemoryEntry:
 
 
 def _build_fts_query(query: str) -> str:
-    """Convert a natural language query to an FTS5 OR query."""
-    tokens = re.findall(r"[a-z0-9]+", query.lower())
+    """Convert a natural-language query to an FTS5 OR query.
+
+    Uses Unicode-aware tokenization so non-Latin scripts are searchable.
+    """
+    tokens = re.findall(r"[^\W_]+", query.lower(), flags=re.UNICODE)
     if not tokens:
         return ""
     return " OR ".join(tokens)
