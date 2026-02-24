@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import signal
 import subprocess
@@ -10,9 +9,6 @@ import time
 from pathlib import Path
 
 from .types import AgentTool, AgentToolResult, AgentToolSchema, TextContent
-
-from .api_catalog import search_api_catalog
-from .kb_search import search_knowledge_base
 
 COMMAND_TIMEOUT = 30
 MAX_OUTPUT_BYTES = 50_000
@@ -238,25 +234,6 @@ def create_culture_engine_tools(team: str, workspace_dir: str) -> list[AgentTool
             parts.append(f"... output truncated at {MAX_OUTPUT_BYTES} bytes")
         return _text_result("\n".join(parts))
 
-    async def search_apis_execute(
-        tool_call_id: str, params: dict, **_: object
-    ) -> AgentToolResult:
-        query = params["query"]
-        top_k = int(params.get("top_k", 5))
-        results = [entry.to_dict() for entry in search_api_catalog(query, top_k=top_k)]
-        return _text_result(json.dumps(results, indent=2))
-
-    async def search_kb_execute(
-        tool_call_id: str, params: dict, **_: object
-    ) -> AgentToolResult:
-        query = params["query"]
-        top_k = int(params.get("top_k", 5))
-        results = [
-            section.to_dict()
-            for section in search_knowledge_base(query, team=team, top_k=top_k)
-        ]
-        return _text_result(json.dumps(results, indent=2))
-
     return [
         AgentTool(
             name="read_file",
@@ -331,46 +308,5 @@ def create_culture_engine_tools(team: str, workspace_dir: str) -> list[AgentTool
                 required=["command"],
             ),
             execute=run_command_execute,
-        ),
-        AgentTool(
-            name="search_apis",
-            description=(
-                "Search available APIs by intent or keyword. "
-                "Returns matching service actions with parameters and auth info."
-            ),
-            parameters=AgentToolSchema(
-                properties={
-                    "query": {
-                        "type": "string",
-                        "description": "Natural language query describing the API capability needed.",
-                    },
-                    "top_k": {
-                        "type": "integer",
-                        "description": "Maximum results to return.",
-                        "default": 5,
-                    },
-                },
-                required=["query"],
-            ),
-            execute=search_apis_execute,
-        ),
-        AgentTool(
-            name="search_knowledge_base",
-            description="Search the organization's knowledge base for policies, roles, systems, and procedures.",
-            parameters=AgentToolSchema(
-                properties={
-                    "query": {
-                        "type": "string",
-                        "description": "Natural language query describing the information needed.",
-                    },
-                    "top_k": {
-                        "type": "integer",
-                        "description": "Maximum results to return.",
-                        "default": 5,
-                    },
-                },
-                required=["query"],
-            ),
-            execute=search_kb_execute,
         ),
     ]
