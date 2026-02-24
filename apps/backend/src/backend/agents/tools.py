@@ -36,8 +36,6 @@ DEFAULT_TOOL_NAMES = [
     "write_file",
     "edit_file",
     "run_command",
-    "search_apis",
-    "search_knowledge_base",
 ]
 
 
