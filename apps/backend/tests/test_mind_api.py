@@ -12,26 +12,23 @@ from fastapi.testclient import TestClient
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from backend import main
-from backend.mind.memory import MemoryManager
-from backend.mind.schema import Task
-from backend.mind.store import MindStore
+from backend.mind.schema import MemoryEntry, Task
+from backend.mind.store import init_db, list_tasks, save_task
 from backend.mind.tools.primitives import create_memory_tools, create_spawn_agent_tool
 
 
 class MindApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp_dir = Path(tempfile.mkdtemp(prefix="mind-api-tests-"))
-        self._old_mind_store = main.mind_store
-        self._old_memory_manager = main.memory_manager
+        self._old_db_path = main.DB_PATH
 
         db_path = self.tmp_dir / "test.db"
-        main.mind_store = MindStore(db_path)
-        main.memory_manager = MemoryManager(db_path)
+        init_db(db_path).close()
+        main.DB_PATH = db_path
         self.client = TestClient(main.app)
 
     def tearDown(self) -> None:
-        main.mind_store = self._old_mind_store
-        main.memory_manager = self._old_memory_manager
+        main.DB_PATH = self._old_db_path
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     @staticmethod
@@ -122,24 +119,13 @@ class MindApiTests(unittest.TestCase):
 
         tasks_resp = self.client.get(f"/api/minds/{mind_id}/tasks")
         self.assertEqual(tasks_resp.status_code, 200)
-        tasks = tasks_resp.json()
-        self.assertEqual(len(tasks), 1)
-        self.assertEqual(tasks[0]["status"], "completed")
+        self.assertEqual(tasks_resp.json(), [])
 
-        task_id = tasks[0]["id"]
-        trace_resp = self.client.get(f"/api/minds/{mind_id}/tasks/{task_id}/trace")
-        self.assertEqual(trace_resp.status_code, 200)
-        trace = trace_resp.json()
-        self.assertEqual(trace["task_id"], task_id)
-        trace_types = [evt["type"] for evt in trace["events"]]
-        self.assertIn("task_started", trace_types)
-        self.assertIn("tool_use", trace_types)
-        self.assertIn("task_finished", trace_types)
-
+        # Stateless runtime: no task traces or autosaved task_result memory persist.
         memory_resp = self.client.get(f"/api/minds/{mind_id}/memory")
         self.assertEqual(memory_resp.status_code, 200)
         memories = memory_resp.json()
-        self.assertTrue(any(m["category"] == "task_result" for m in memories))
+        self.assertFalse(any(m["category"] == "task_result" for m in memories))
 
     def test_spawn_agent_uses_isolated_workspace(self):
         create_resp = self.client.post("/api/minds", json={"name": "Hub"})
@@ -226,26 +212,15 @@ class MindApiTests(unittest.TestCase):
         self.assertIn("memory_saved", event_types)
 
         tasks_resp = self.client.get(f"/api/minds/{mind_id}/tasks")
-        tasks = tasks_resp.json()
-        self.assertEqual(len(tasks), 1)
-        self.assertEqual(tasks[0]["status"], "completed")
-        self.assertEqual(
-            tasks[0]["result"], "Completed summary from final result payload."
-        )
+        self.assertEqual(tasks_resp.json(), [])
 
+        # Stateless runtime: result/mind_insight memory events are emitted per run,
+        # but not persisted to long-term memory store.
         memory_resp = self.client.get(f"/api/minds/{mind_id}/memory")
         memories = memory_resp.json()
         categories = {memory["category"] for memory in memories}
-        self.assertIn("task_result", categories)
-        self.assertIn("mind_insight", categories)
-
-        task_result_memory = next(
-            memory for memory in memories if memory["category"] == "task_result"
-        )
-        self.assertIn(
-            "Completed summary from final result payload.",
-            task_result_memory["content"],
-        )
+        self.assertNotIn("task_result", categories)
+        self.assertNotIn("mind_insight", categories)
 
     def test_error_result_marks_task_failed(self):
         create_resp = self.client.post(
@@ -290,10 +265,7 @@ class MindApiTests(unittest.TestCase):
         self.assertEqual(finished["content"]["status"], "failed")
 
         tasks_resp = self.client.get(f"/api/minds/{mind_id}/tasks")
-        tasks = tasks_resp.json()
-        self.assertEqual(len(tasks), 1)
-        self.assertEqual(tasks[0]["status"], "failed")
-        self.assertIn("Upstream provider unavailable", tasks[0]["result"])
+        self.assertEqual(tasks_resp.json(), [])
 
     def test_intermediate_error_event_does_not_force_failure_when_result_completes(
         self,
@@ -331,10 +303,7 @@ class MindApiTests(unittest.TestCase):
         self.assertEqual(finished["content"]["status"], "completed")
 
         tasks_resp = self.client.get(f"/api/minds/{mind_id}/tasks")
-        tasks = tasks_resp.json()
-        self.assertEqual(len(tasks), 1)
-        self.assertEqual(tasks[0]["status"], "completed")
-        self.assertEqual(tasks[0]["result"], "Recovered and completed successfully.")
+        self.assertEqual(tasks_resp.json(), [])
 
     def test_text_delta_volume_does_not_trip_structural_event_limit(self):
         create_resp = self.client.post(
@@ -380,10 +349,7 @@ class MindApiTests(unittest.TestCase):
         )
 
         tasks_resp = self.client.get(f"/api/minds/{mind_id}/tasks")
-        tasks = tasks_resp.json()
-        self.assertEqual(len(tasks), 1)
-        self.assertEqual(tasks[0]["status"], "completed")
-        self.assertIn("charter editor", tasks[0]["result"])
+        self.assertEqual(tasks_resp.json(), [])
 
     def test_create_mind_includes_default_charter_and_accepts_override(self):
         default_resp = self.client.post(
@@ -591,8 +557,8 @@ class MindApiTests(unittest.TestCase):
                 _ = self._read_sse(response)
 
         system_prompt = captured_prompt.get("value", "")
-        self.assertIn("Prefer shipping a reversible draft", system_prompt)
-        self.assertIn("user_feedback", system_prompt)
+        # Stateless runtime does not hydrate persisted feedback memories.
+        self.assertNotIn("Prefer shipping a reversible draft", system_prompt)
 
     def test_quick_followup_does_not_infer_implicit_feedback(self):
         create_resp = self.client.post(
@@ -712,7 +678,8 @@ class MindApiTests(unittest.TestCase):
 class MindStoreTests(unittest.TestCase):
     def test_list_tasks_orders_by_created_at_desc(self):
         tmp_dir = Path(tempfile.mkdtemp(prefix="mind-store-tests-"))
-        store = MindStore(tmp_dir / "test.db")
+        db_path = tmp_dir / "test.db"
+        init_db(db_path).close()
         try:
             mind_id = "mind_1"
             older = Task(
@@ -728,10 +695,10 @@ class MindStoreTests(unittest.TestCase):
                 created_at=datetime(2025, 1, 2, tzinfo=timezone.utc),
             )
 
-            store.save_task(mind_id, older)
-            store.save_task(mind_id, newer)
+            save_task(db_path, mind_id, older)
+            save_task(db_path, mind_id, newer)
 
-            tasks = store.list_tasks(mind_id)
+            tasks = list_tasks(db_path, mind_id)
             self.assertEqual([task.id for task in tasks], ["aaa_newer", "zzz_older"])
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -764,10 +731,23 @@ class SpawnAgentToolTests(unittest.IsolatedAsyncioTestCase):
 
 class MemoryToolTests(unittest.IsolatedAsyncioTestCase):
     async def test_memory_save_limits_calls(self):
+        from backend.mind.memory import list_memories, save_memory as _save_memory
+
         tmp_dir = Path(tempfile.mkdtemp(prefix="memory-tool-tests-"))
-        manager = MemoryManager(tmp_dir / "test.db")
+        db_path = tmp_dir / "test.db"
+        init_db(db_path).close()
+
+        class _MemAdapter:
+            def save(self, entry: MemoryEntry) -> str:
+                return _save_memory(db_path, entry)
+
+            def search(self, mind_id: str, query: str, top_k: int = 10):
+                from backend.mind.memory import search_memory
+                return search_memory(db_path, mind_id, query, top_k=top_k)
+
         try:
-            tools = create_memory_tools(manager, "mind_1", max_saves=1)
+            adapter = _MemAdapter()
+            tools = create_memory_tools(adapter, "mind_1", max_saves=1)
             memory_save = next(tool for tool in tools if tool.name == "memory_save")
 
             first = await memory_save.execute("mc_1", {"content": "first note"})
@@ -779,7 +759,7 @@ class MemoryToolTests(unittest.IsolatedAsyncioTestCase):
                 getattr(second.content[0], "text", ""),
             )
 
-            memories = manager.list_all("mind_1")
+            memories = list_memories(db_path, "mind_1")
             self.assertEqual(len(memories), 1)
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)

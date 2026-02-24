@@ -9,10 +9,9 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from backend.config import get_settings
-from backend.mind.memory import MemoryManager
 from backend.mind.schema import MindProfile
 from backend.mind.pipeline import delegate_to_mind
-from backend.mind.store import MindStore
+from backend.mind.store import init_db, list_tasks, load_task_trace, save_mind
 
 MODEL_ID = "anthropic/claude-haiku-4.5"
 MAX_ATTEMPTS = 2
@@ -22,8 +21,7 @@ class OpenRouterMindIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.tmp_dir = Path(tempfile.mkdtemp(prefix="mind-openrouter-it-"))
         self.db_path = self.tmp_dir / "mind.db"
-        self.mind_store = MindStore(self.db_path)
-        self.memory_manager = MemoryManager(self.db_path)
+        init_db(self.db_path).close()
         self._old_default_model = os.environ.get("DEFAULT_MODEL")
 
     async def asyncTearDown(self) -> None:
@@ -42,8 +40,7 @@ class OpenRouterMindIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         async def _run() -> None:
             async for event in delegate_to_mind(
-                mind_store=self.mind_store,
-                memory_manager=self.memory_manager,
+                db_path=self.db_path,
                 mind_id=mind_id,
                 description="Respond with one short sentence confirming the integration check.",
                 team="default",
@@ -76,7 +73,7 @@ class OpenRouterMindIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(get_settings().default_model, MODEL_ID)
 
         mind = MindProfile(name="Integration Mind", personality="concise")
-        self.mind_store.save_mind(mind)
+        save_mind(self.db_path, mind)
 
         last_events: list[dict] = []
         for _ in range(MAX_ATTEMPTS):
@@ -124,10 +121,10 @@ class OpenRouterMindIntegrationTests(unittest.IsolatedAsyncioTestCase):
             + self._diagnostics(last_events),
         )
 
-        tasks = self.mind_store.list_tasks(mind.id)
+        tasks = list_tasks(self.db_path, mind.id)
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0].status, "completed")
 
-        trace = self.mind_store.load_task_trace(mind.id, tasks[0].id)
+        trace = load_task_trace(self.db_path, mind.id, tasks[0].id)
         self.assertIsNotNone(trace)
         self.assertGreater(len(trace.get("events", [])), 0)

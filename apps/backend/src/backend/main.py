@@ -12,11 +12,23 @@ from fastapi.responses import StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .mind.events import EventStream
-from .mind.memory import MemoryManager
+from .mind.memory import list_memories, save_memory
 from .mind.pipeline import delegate_to_mind
 from .mind.schema import MemoryEntry, MindCharter, MindProfile, Task
 from .mind.self_knowledge import build_default_self_knowledge
-from .mind.store import MindStore
+from .mind.store import (
+    init_db,
+    list_drones,
+    list_minds,
+    list_tasks,
+    load_drone_trace,
+    load_mind,
+    load_task,
+    load_task_trace,
+    save_mind,
+    save_task,
+    save_task_trace,
+)
 from .models import (
     DelegateTaskRequest,
     HealthResponse,
@@ -72,8 +84,7 @@ if not CULTURE_DATA_DIR.exists() and LEGACY_MIND_DATA_DIR.exists():
     CULTURE_DATA_DIR = LEGACY_MIND_DATA_DIR
 
 _DB_PATH = CULTURE_DATA_DIR / "culture.db"
-mind_store = MindStore(_DB_PATH)
-memory_manager = MemoryManager(_DB_PATH)
+DB_PATH = _DB_PATH
 
 
 def _preview(text: str, limit: int = 160) -> str:
@@ -190,7 +201,7 @@ def _migrate_legacy_json(base_dir: Path) -> None:
         for fp in minds_dir.glob("*.json"):
             try:
                 mind = MindProfile.model_validate(json.loads(fp.read_text()))
-                mind_store.save_mind(mind)
+                save_mind(DB_PATH, mind)
                 count += 1
             except Exception:
                 failures += 1
@@ -204,7 +215,7 @@ def _migrate_legacy_json(base_dir: Path) -> None:
             for fp in mind_dir.glob("*.json"):
                 try:
                     task = Task.model_validate(json.loads(fp.read_text()))
-                    mind_store.save_task(mind_dir.name, task)
+                    save_task(DB_PATH, mind_dir.name, task)
                     count += 1
                 except Exception:
                     failures += 1
@@ -215,7 +226,7 @@ def _migrate_legacy_json(base_dir: Path) -> None:
         for fp in mind_dir.glob("*.json"):
             try:
                 entry = MemoryEntry.model_validate(json.loads(fp.read_text()))
-                memory_manager.save(entry)
+                save_memory(DB_PATH, entry)
                 count += 1
             except Exception:
                 failures += 1
@@ -229,8 +240,8 @@ def _migrate_legacy_json(base_dir: Path) -> None:
             for fp in mind_dir.glob("*.json"):
                 try:
                     data = json.loads(fp.read_text())
-                    mind_store.save_task_trace(
-                        data["mind_id"], data["task_id"], data.get("events", [])
+                    save_task_trace(
+                        DB_PATH, data["mind_id"], data["task_id"], data.get("events", [])
                     )
                     count += 1
                 except Exception:
@@ -255,6 +266,7 @@ def _migrate_legacy_json(base_dir: Path) -> None:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Run one-time startup tasks before serving requests."""
+    init_db(DB_PATH).close()
     _migrate_legacy_json(CULTURE_DATA_DIR)
     if LEGACY_MIND_DATA_DIR.exists() and LEGACY_MIND_DATA_DIR != CULTURE_DATA_DIR:
         _migrate_legacy_json(LEGACY_MIND_DATA_DIR)
@@ -281,18 +293,18 @@ def create_mind(request: MindCreateRequest):
         system_prompt=request.system_prompt,
         charter=request.charter,
     )
-    mind_store.save_mind(mind)
+    save_mind(DB_PATH, mind)
     return mind.model_dump(mode="json")
 
 
 @app.get("/api/minds")
-def list_minds():
-    return [mind.model_dump(mode="json") for mind in mind_store.list_minds()]
+def list_all_minds():
+    return [mind.model_dump(mode="json") for mind in list_minds(DB_PATH)]
 
 
 @app.get("/api/minds/{mind_id}")
 def get_mind(mind_id: str):
-    mind = mind_store.load_mind(mind_id)
+    mind = load_mind(DB_PATH, mind_id)
     if mind is None:
         raise HTTPException(status_code=404, detail="Mind not found")
     return mind.model_dump(mode="json")
@@ -300,7 +312,7 @@ def get_mind(mind_id: str):
 
 @app.get("/api/minds/{mind_id}/self")
 def get_mind_self_knowledge(mind_id: str, team: str = "default"):
-    mind = mind_store.load_mind(mind_id)
+    mind = load_mind(DB_PATH, mind_id)
     if mind is None:
         raise HTTPException(status_code=404, detail="Mind not found")
     return build_default_self_knowledge(mind, team=team)
@@ -308,7 +320,7 @@ def get_mind_self_knowledge(mind_id: str, team: str = "default"):
 
 @app.patch("/api/minds/{mind_id}")
 def update_mind(mind_id: str, request: MindUpdateRequest):
-    mind = mind_store.load_mind(mind_id)
+    mind = load_mind(DB_PATH, mind_id)
     if mind is None:
         raise HTTPException(status_code=404, detail="Mind not found")
 
@@ -333,18 +345,18 @@ def update_mind(mind_id: str, request: MindUpdateRequest):
             charter_data.update(charter_updates)
             mind.charter = MindCharter.model_validate(charter_data)
 
-    mind_store.save_mind(mind)
+    save_mind(DB_PATH, mind)
 
     implicit_signal = _build_profile_update_signal(before, mind)
     if implicit_signal is not None:
-        memory_manager.save(implicit_signal)
+        save_memory(DB_PATH, implicit_signal)
 
     return mind.model_dump(mode="json")
 
 
 @app.post("/api/minds/{mind_id}/feedback")
 def add_mind_feedback(mind_id: str, request: MindFeedbackRequest):
-    mind = mind_store.load_mind(mind_id)
+    mind = load_mind(DB_PATH, mind_id)
     if mind is None:
         raise HTTPException(status_code=404, detail="Mind not found")
 
@@ -354,7 +366,7 @@ def add_mind_feedback(mind_id: str, request: MindFeedbackRequest):
 
     related_task = None
     if request.task_id:
-        related_task = mind_store.load_task(mind_id, request.task_id)
+        related_task = load_task(DB_PATH, mind_id, request.task_id)
         if related_task is None:
             raise HTTPException(status_code=404, detail="Task not found")
 
@@ -390,7 +402,7 @@ def add_mind_feedback(mind_id: str, request: MindFeedbackRequest):
         category="user_feedback",
         relevance_keywords=sorted(set(keywords)),
     )
-    memory_manager.save(memory)
+    save_memory(DB_PATH, memory)
     return memory.model_dump(mode="json")
 
 
@@ -399,8 +411,7 @@ async def delegate_task(mind_id: str, request: DelegateTaskRequest):
     async def event_stream():
         trace_id = uuid.uuid4().hex
         raw_stream = delegate_to_mind(
-            mind_store=mind_store,
-            memory_manager=memory_manager,
+            db_path=DB_PATH,
             mind_id=mind_id,
             description=request.description,
             team=request.team,
@@ -420,15 +431,15 @@ async def delegate_task(mind_id: str, request: DelegateTaskRequest):
 
 @app.get("/api/minds/{mind_id}/tasks")
 def list_mind_tasks(mind_id: str):
-    mind = mind_store.load_mind(mind_id)
+    mind = load_mind(DB_PATH, mind_id)
     if mind is None:
         raise HTTPException(status_code=404, detail="Mind not found")
-    return [task.model_dump(mode="json") for task in mind_store.list_tasks(mind_id)]
+    return [task.model_dump(mode="json") for task in list_tasks(DB_PATH, mind_id)]
 
 
 @app.get("/api/minds/{mind_id}/tasks/{task_id}")
 def get_mind_task(mind_id: str, task_id: str):
-    task = mind_store.load_task(mind_id, task_id)
+    task = load_task(DB_PATH, mind_id, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task.model_dump(mode="json")
@@ -436,18 +447,18 @@ def get_mind_task(mind_id: str, task_id: str):
 
 @app.get("/api/minds/{mind_id}/tasks/{task_id}/drones")
 def list_task_drones(mind_id: str, task_id: str):
-    task = mind_store.load_task(mind_id, task_id)
+    task = load_task(DB_PATH, mind_id, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return [
         drone.model_dump(mode="json")
-        for drone in mind_store.list_drones(mind_id, task_id)
+        for drone in list_drones(DB_PATH, mind_id, task_id)
     ]
 
 
 @app.get("/api/minds/{mind_id}/drones/{drone_id}/trace")
 def get_drone_trace(mind_id: str, drone_id: str):
-    trace = mind_store.load_drone_trace(mind_id, drone_id)
+    trace = load_drone_trace(DB_PATH, mind_id, drone_id)
     if trace is None:
         raise HTTPException(status_code=404, detail="Drone trace not found")
     return trace
@@ -455,7 +466,7 @@ def get_drone_trace(mind_id: str, drone_id: str):
 
 @app.get("/api/minds/{mind_id}/tasks/{task_id}/trace")
 def get_mind_task_trace(mind_id: str, task_id: str):
-    trace = mind_store.load_task_trace(mind_id, task_id)
+    trace = load_task_trace(DB_PATH, mind_id, task_id)
     if trace is None:
         raise HTTPException(status_code=404, detail="Task trace not found")
     return trace
@@ -463,10 +474,10 @@ def get_mind_task_trace(mind_id: str, task_id: str):
 
 @app.get("/api/minds/{mind_id}/memory")
 def list_mind_memory(mind_id: str, category: str | None = None):
-    mind = mind_store.load_mind(mind_id)
+    mind = load_mind(DB_PATH, mind_id)
     if mind is None:
         raise HTTPException(status_code=404, detail="Mind not found")
     return [
         m.model_dump(mode="json")
-        for m in memory_manager.list_all(mind_id, category=category)
+        for m in list_memories(DB_PATH, mind_id, category=category)
     ]

@@ -10,17 +10,35 @@ from unittest.mock import AsyncMock
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from backend.mind.memory import MemoryManager
+from backend.mind.memory import list_memories, save_memory, search_memory
+from backend.mind.store import init_db
 from backend.mind.tools.primitives import create_memory_tools, create_spawn_agent_tool
 
 MIND_ID = "test-mind-1"
+
+
+class _MemoryAdapter:
+    """Thin duck-typed wrapper over memory free functions for use in tests."""
+
+    def __init__(self, db_path: Path):
+        self._db_path = db_path
+
+    def save(self, entry):
+        return save_memory(self._db_path, entry)
+
+    def search(self, mind_id: str, query: str, top_k: int = 10):
+        return search_memory(self._db_path, mind_id, query, top_k=top_k)
+
+    def list_all(self, mind_id: str, category=None):
+        return list_memories(self._db_path, mind_id, category=category)
 
 
 class TestMemorySave(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()
         self._db_path = Path(self._tmpdir) / "test.db"
-        self.mm = MemoryManager(self._db_path)
+        init_db(self._db_path).close()
+        self.mm = _MemoryAdapter(self._db_path)
         tools = create_memory_tools(self.mm, MIND_ID)
         self.memory_save = tools[0]
         self.memory_search = tools[1]
@@ -78,7 +96,8 @@ class TestMemorySearch(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()
         self._db_path = Path(self._tmpdir) / "test.db"
-        self.mm = MemoryManager(self._db_path)
+        init_db(self._db_path).close()
+        self.mm = _MemoryAdapter(self._db_path)
         tools = create_memory_tools(self.mm, MIND_ID)
         self.memory_save = tools[0]
         self.memory_search = tools[1]

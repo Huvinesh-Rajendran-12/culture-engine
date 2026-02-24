@@ -9,9 +9,23 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from backend.mind.database import init_db
-from backend.mind.memory import MemoryManager
+from backend.mind.memory import delete_memory, list_memories, save_memory, search_memory
 from backend.mind.schema import Drone, MemoryEntry, MindCharter, MindProfile, Task
-from backend.mind.store import MindStore
+from backend.mind.store import (
+    delete_mind,
+    list_drones,
+    list_minds,
+    list_tasks,
+    load_drone_trace,
+    load_mind,
+    load_task,
+    load_task_trace,
+    save_drone,
+    save_drone_trace,
+    save_mind,
+    save_task,
+    save_task_trace,
+)
 
 
 class DatabaseInitTests(unittest.TestCase):
@@ -85,13 +99,13 @@ class DatabaseInitTests(unittest.TestCase):
 class MindStoreSqliteTests(unittest.TestCase):
     def test_mind_crud(self):
         tmp_dir = Path(tempfile.mkdtemp(prefix="mind-store-tests-"))
+        db_path = tmp_dir / "test.db"
+        init_db(db_path).close()
         try:
-            store = MindStore(tmp_dir / "test.db")
-
             mind = MindProfile(name="TestMind", personality="friendly")
-            store.save_mind(mind)
+            save_mind(db_path, mind)
 
-            loaded = store.load_mind(mind.id)
+            loaded = load_mind(db_path, mind.id)
             self.assertIsNotNone(loaded)
             if loaded is None:
                 self.fail("Expected stored mind to be loadable")
@@ -99,46 +113,44 @@ class MindStoreSqliteTests(unittest.TestCase):
             self.assertEqual(loaded.personality, "friendly")
 
             task = Task(mind_id=mind.id, description="cleanup candidate")
-            store.save_task(mind.id, task)
-            store.save_task_trace(mind.id, task.id, [{"type": "text", "content": "hi"}])
-            drone = store.save_drone(
-                Drone(
-                    mind_id=mind.id,
-                    task_id=task.id,
-                    objective="subtask",
-                    status="completed",
-                )
+            save_task(db_path, mind.id, task)
+            save_task_trace(db_path, mind.id, task.id, [{"type": "text", "content": "hi"}])
+            drone = Drone(
+                mind_id=mind.id,
+                task_id=task.id,
+                objective="subtask",
+                status="completed",
             )
-            store.save_drone_trace(mind.id, drone, [{"type": "text", "content": "ok"}])
-            MemoryManager(tmp_dir / "test.db").save(
-                MemoryEntry(mind_id=mind.id, content="memory to delete")
-            )
+            drone_id = save_drone(db_path, drone)
+            save_drone_trace(db_path, mind.id, drone_id, [{"type": "text", "content": "ok"}])
+            save_memory(db_path, MemoryEntry(mind_id=mind.id, content="memory to delete"))
 
-            minds = store.list_minds()
+            minds = list_minds(db_path)
             self.assertEqual(len(minds), 1)
 
-            deleted = store.delete_mind(mind.id)
+            deleted = delete_mind(db_path, mind.id)
             self.assertTrue(deleted)
-            self.assertIsNone(store.load_mind(mind.id))
-            self.assertEqual(store.list_tasks(mind.id), [])
-            self.assertIsNone(store.load_task_trace(mind.id, task.id))
-            self.assertEqual(store.list_drones(mind.id, task.id), [])
-            self.assertIsNone(store.load_drone_trace(mind.id, drone))
-            self.assertEqual(MemoryManager(tmp_dir / "test.db").list_all(mind.id), [])
+            self.assertIsNone(load_mind(db_path, mind.id))
+            self.assertEqual(list_tasks(db_path, mind.id), [])
+            self.assertIsNone(load_task_trace(db_path, mind.id, task.id))
+            self.assertEqual(list_drones(db_path, mind.id, task.id), [])
+            self.assertIsNone(load_drone_trace(db_path, mind.id, drone_id))
+            self.assertEqual(list_memories(db_path, mind.id), [])
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def test_task_trace_roundtrip(self):
         tmp_dir = Path(tempfile.mkdtemp(prefix="mind-trace-tests-"))
+        db_path = tmp_dir / "test.db"
+        init_db(db_path).close()
         try:
-            store = MindStore(tmp_dir / "test.db")
             mind_id = "mind_1"
             task_id = "task_1"
 
             events = [{"type": "text", "content": "hello"}]
-            store.save_task_trace(mind_id, task_id, events)
+            save_task_trace(db_path, mind_id, task_id, events)
 
-            trace = store.load_task_trace(mind_id, task_id)
+            trace = load_task_trace(db_path, mind_id, task_id)
             self.assertIsNotNone(trace)
             if trace is None:
                 self.fail("Expected task trace to roundtrip")
@@ -149,8 +161,9 @@ class MindStoreSqliteTests(unittest.TestCase):
 
     def test_mind_charter_roundtrip(self):
         tmp_dir = Path(tempfile.mkdtemp(prefix="mind-charter-tests-"))
+        db_path = tmp_dir / "test.db"
+        init_db(db_path).close()
         try:
-            store = MindStore(tmp_dir / "test.db")
             mind = MindProfile(
                 name="Builder",
                 charter=MindCharter(
@@ -159,8 +172,8 @@ class MindStoreSqliteTests(unittest.TestCase):
                 ),
             )
 
-            store.save_mind(mind)
-            loaded = store.load_mind(mind.id)
+            save_mind(db_path, mind)
+            loaded = load_mind(db_path, mind.id)
 
             self.assertIsNotNone(loaded)
             if loaded is None:
@@ -178,8 +191,9 @@ class MindStoreSqliteTests(unittest.TestCase):
 
     def test_concurrent_writes(self):
         tmp_dir = Path(tempfile.mkdtemp(prefix="mind-concurrent-tests-"))
+        db_path = tmp_dir / "test.db"
+        init_db(db_path).close()
         try:
-            store = MindStore(tmp_dir / "test.db")
             mind_id = "mind_1"
             errors = []
 
@@ -191,7 +205,7 @@ class MindStoreSqliteTests(unittest.TestCase):
                             mind_id=mind_id,
                             description=f"task {start}_{i}",
                         )
-                        store.save_task(mind_id, task)
+                        save_task(db_path, mind_id, task)
                 except Exception as exc:
                     errors.append(exc)
 
@@ -202,7 +216,7 @@ class MindStoreSqliteTests(unittest.TestCase):
                 thread.join()
 
             self.assertEqual(errors, [])
-            tasks = store.list_tasks(mind_id)
+            tasks = list_tasks(db_path, mind_id)
             self.assertEqual(len(tasks), 200)
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -211,40 +225,35 @@ class MindStoreSqliteTests(unittest.TestCase):
 class MemoryFtsTests(unittest.TestCase):
     def test_fts_search_finds_matching_memories(self):
         tmp_dir = Path(tempfile.mkdtemp(prefix="memory-fts-tests-"))
+        db_path = tmp_dir / "test.db"
+        init_db(db_path).close()
         try:
-            manager = MemoryManager(tmp_dir / "test.db")
             mind_id = "mind_1"
 
-            manager.save(
-                MemoryEntry(
-                    mind_id=mind_id,
-                    content="Release notes for version 3.2",
-                    category="notes",
-                    relevance_keywords=["release", "version"],
-                )
-            )
-            manager.save(
-                MemoryEntry(
-                    mind_id=mind_id,
-                    content="Meeting notes from Monday standup",
-                    category="notes",
-                    relevance_keywords=["meeting", "standup"],
-                )
-            )
-            manager.save(
-                MemoryEntry(
-                    mind_id=mind_id,
-                    content="Database migration plan for Q4",
-                    category="planning",
-                    relevance_keywords=["database", "migration"],
-                )
-            )
+            save_memory(db_path, MemoryEntry(
+                mind_id=mind_id,
+                content="Release notes for version 3.2",
+                category="notes",
+                relevance_keywords=["release", "version"],
+            ))
+            save_memory(db_path, MemoryEntry(
+                mind_id=mind_id,
+                content="Meeting notes from Monday standup",
+                category="notes",
+                relevance_keywords=["meeting", "standup"],
+            ))
+            save_memory(db_path, MemoryEntry(
+                mind_id=mind_id,
+                content="Database migration plan for Q4",
+                category="planning",
+                relevance_keywords=["database", "migration"],
+            ))
 
-            results = manager.search(mind_id, "release notes")
+            results = search_memory(db_path, mind_id, "release notes")
             self.assertTrue(len(results) >= 1)
             self.assertTrue(any("release" in r.content.lower() for r in results))
 
-            results = manager.search(mind_id, "standup meeting")
+            results = search_memory(db_path, mind_id, "standup meeting")
             self.assertTrue(len(results) >= 1)
             self.assertTrue(any("standup" in r.content.lower() for r in results))
 
@@ -253,21 +262,23 @@ class MemoryFtsTests(unittest.TestCase):
 
     def test_search_empty_query_returns_empty(self):
         tmp_dir = Path(tempfile.mkdtemp(prefix="memory-empty-tests-"))
+        db_path = tmp_dir / "test.db"
+        init_db(db_path).close()
         try:
-            manager = MemoryManager(tmp_dir / "test.db")
-            results = manager.search("mind_1", "")
+            results = search_memory(db_path, "mind_1", "")
             self.assertEqual(results, [])
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def test_search_supports_non_latin_tokens(self):
         tmp_dir = Path(tempfile.mkdtemp(prefix="memory-unicode-tests-"))
+        db_path = tmp_dir / "test.db"
+        init_db(db_path).close()
         try:
-            manager = MemoryManager(tmp_dir / "test.db")
             mind_id = "mind_1"
 
-            manager.save(MemoryEntry(mind_id=mind_id, content="今日は新しい計画を立てる"))
-            results = manager.search(mind_id, "計画")
+            save_memory(db_path, MemoryEntry(mind_id=mind_id, content="今日は新しい計画を立てる"))
+            results = search_memory(db_path, mind_id, "計画")
             self.assertEqual(len(results), 1)
             self.assertIn("計画", results[0].content)
         finally:
@@ -275,24 +286,20 @@ class MemoryFtsTests(unittest.TestCase):
 
     def test_search_isolates_by_mind_id(self):
         tmp_dir = Path(tempfile.mkdtemp(prefix="memory-isolation-tests-"))
+        db_path = tmp_dir / "test.db"
+        init_db(db_path).close()
         try:
-            manager = MemoryManager(tmp_dir / "test.db")
+            save_memory(db_path, MemoryEntry(
+                mind_id="mind_a",
+                content="Secret project alpha details",
+            ))
+            save_memory(db_path, MemoryEntry(
+                mind_id="mind_b",
+                content="Secret project beta details",
+            ))
 
-            manager.save(
-                MemoryEntry(
-                    mind_id="mind_a",
-                    content="Secret project alpha details",
-                )
-            )
-            manager.save(
-                MemoryEntry(
-                    mind_id="mind_b",
-                    content="Secret project beta details",
-                )
-            )
-
-            results_a = manager.search("mind_a", "secret project")
-            results_b = manager.search("mind_b", "secret project")
+            results_a = search_memory(db_path, "mind_a", "secret project")
+            results_b = search_memory(db_path, "mind_b", "secret project")
 
             self.assertEqual(len(results_a), 1)
             self.assertIn("alpha", results_a[0].content)
@@ -303,19 +310,20 @@ class MemoryFtsTests(unittest.TestCase):
 
     def test_delete_removes_from_fts_index(self):
         tmp_dir = Path(tempfile.mkdtemp(prefix="memory-delete-tests-"))
+        db_path = tmp_dir / "test.db"
+        init_db(db_path).close()
         try:
-            manager = MemoryManager(tmp_dir / "test.db")
             mind_id = "mind_1"
 
             entry = MemoryEntry(mind_id=mind_id, content="Unique searchable content")
-            manager.save(entry)
+            save_memory(db_path, entry)
 
-            results = manager.search(mind_id, "unique searchable")
+            results = search_memory(db_path, mind_id, "unique searchable")
             self.assertEqual(len(results), 1)
 
-            manager.delete(mind_id, entry.id)
+            delete_memory(db_path, mind_id, entry.id)
 
-            results = manager.search(mind_id, "unique searchable")
+            results = search_memory(db_path, mind_id, "unique searchable")
             self.assertEqual(len(results), 0)
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)

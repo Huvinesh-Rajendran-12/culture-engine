@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import datetime, timezone
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
 from ..agents.base import run_agent
+from ..agents.tools import create_culture_engine_tools
+from ..agents.types import AgentTool
 from .config import (
     DEFAULT_MEMORY_SAVE_MAX_CALLS,
     DEFAULT_MIND_MAX_TURNS,
@@ -22,12 +25,33 @@ from .config import (
     MAX_STREAM_EVENTS,
     MAX_TEXT_DELTA_EVENTS,
 )
-from .memory import MemoryManager
 from .reasoning import build_system_prompt
 from .schema import Drone, MemoryEntry, MindProfile, Task
 from .self_knowledge import build_self_knowledge_manifest
-from .store import MindStore
-from .tools import create_mind_tools, tool_names
+from .store import load_mind
+from .tools.primitives import create_memory_tools, create_spawn_agent_tool
+
+
+def create_mind_tools(
+    *,
+    team: str,
+    workspace_dir: str,
+    memory_manager: Any,
+    mind_id: str,
+    spawn_agent_fn: Callable[[str, int], Awaitable[str]],
+    include_spawn_agent: bool = True,
+) -> list[AgentTool]:
+    tools = [
+        *create_culture_engine_tools(team=team, workspace_dir=workspace_dir),
+        *create_memory_tools(memory_manager=memory_manager, mind_id=mind_id),
+    ]
+    if include_spawn_agent:
+        tools.append(create_spawn_agent_tool(spawn_agent_fn))
+    return tools
+
+
+def tool_names(tools: list[AgentTool]) -> list[str]:
+    return sorted([tool.name for tool in tools])
 
 
 def _merge_memory_context(
@@ -112,6 +136,35 @@ def _build_autonomous_insight(
     return "\n".join(lines), sorted(set(keywords))
 
 
+class _EphemeralMemory:
+    """Per-run in-memory memory adapter (no persistence across runs)."""
+
+    def __init__(self, mind_id: str):
+        self._mind_id = mind_id
+        self._entries: list[MemoryEntry] = []
+
+    def save(self, entry: MemoryEntry) -> str:
+        if entry.mind_id == self._mind_id:
+            self._entries.append(entry)
+        return entry.id
+
+    def search(self, mind_id: str, query: str, top_k: int = 10) -> list[MemoryEntry]:
+        if mind_id != self._mind_id:
+            return []
+        q = query.strip().lower()
+        if not q:
+            return []
+        matches = [e for e in self._entries if q in e.content.lower()]
+        return matches[-top_k:]
+
+    def list_all(self, mind_id: str, category: str | None = None) -> list[MemoryEntry]:
+        if mind_id != self._mind_id:
+            return []
+        if category is None:
+            return list(self._entries)
+        return [e for e in self._entries if e.category == category]
+
+
 def _build_runtime_manifest(
     *,
     mind: MindProfile,
@@ -142,7 +195,7 @@ def _build_runtime_manifest(
         "architecture_notes": [
             "Single-path orchestration per delegation run.",
             "Sub-agents are explicit via spawn_agent; no implicit auto-splitting.",
-            "Task traces and memories are persisted to SQLite for continuity.",
+            "This runtime is stateless across runs (no task/memory persistence in loop).",
             "For workspace discovery, use run_command with rg (content) and fd (file paths).",
             "Keep filesystem searches scoped and bounded before reading large files.",
         ],
@@ -160,146 +213,23 @@ def _build_runtime_manifest(
     return manifest
 
 
-async def execute_task(
-    *,
-    mind: MindProfile,
-    task: str,
-    task_id: str,
-    team: str,
-    memories: list[MemoryEntry],
-    memory_manager: MemoryManager,
-    mind_store: MindStore,
-) -> AsyncGenerator[dict, None]:
-    """Execute one task with one Mind run.
-
-    Note: automatic orchestration is intentionally minimal.
-    Sub-agents are available only through the explicit spawn_agent tool.
-    """
-    with TemporaryDirectory(prefix="mind-") as workspace:
-
-        async def _spawn_agent(objective: str, max_turns: int) -> str:
-            drone = Drone(
-                mind_id=mind.id,
-                task_id=task_id,
-                objective=objective,
-                status="running",
-            )
-            mind_store.save_drone(drone)
-
-            chunks: list[str] = []
-            trace_events: list[dict] = []
-
-            try:
-                with TemporaryDirectory(prefix="drone-") as drone_workspace:
-                    drone_tools = create_mind_tools(
-                        team=team,
-                        workspace_dir=drone_workspace,
-                        memory_manager=memory_manager,
-                        mind_id=mind.id,
-                        spawn_agent_fn=_spawn_agent,
-                        include_spawn_agent=False,
-                    )
-                    drone_tool_names = tool_names(drone_tools)
-                    drone_manifest = _build_runtime_manifest(
-                        mind=mind,
-                        team=team,
-                        tools=drone_tool_names,
-                        max_turns=max_turns,
-                        include_spawn_agent=False,
-                        stream_event_limit=MAX_STREAM_EVENTS,
-                        text_delta_event_limit=MAX_TEXT_DELTA_EVENTS,
-                        autosave_memory_limit=MAX_AUTOSAVE_MEMORIES_PER_RUN,
-                    )
-
-                    async for event in run_agent(
-                        prompt=f"[Drone Objective] {objective}",
-                        system_prompt=build_system_prompt(
-                            mind, memories, drone_manifest
-                        ),
-                        workspace_dir=drone_workspace,
-                        team=team,
-                        tools_override=drone_tools,
-                        allowed_tools=drone_tool_names,
-                        max_turns=max_turns,
-                    ):
-                        trace_events.append(event)
-                        if event.get("type") == "text" and isinstance(
-                            event.get("content"), str
-                        ):
-                            chunks.append(event["content"])
-
-                result = (
-                    "\n".join(chunks[-3:])
-                    if chunks
-                    else "Sub-agent completed with no textual output."
-                )
-                drone.status = "completed"
-                drone.result = result
-            except Exception as exc:
-                result = f"Drone failed: {exc}"
-                drone.status = "failed"
-                drone.result = result
-            finally:
-                drone.completed_at = datetime.now(timezone.utc)
-                mind_store.save_drone(drone)
-                mind_store.save_drone_trace(mind.id, drone.id, trace_events)
-
-            return result
-
-        tools = create_mind_tools(
-            team=team,
-            workspace_dir=workspace,
-            memory_manager=memory_manager,
-            mind_id=mind.id,
-            spawn_agent_fn=_spawn_agent,
-            include_spawn_agent=True,
-        )
-        tools_for_run = tool_names(tools)
-        runtime_manifest = _build_runtime_manifest(
-            mind=mind,
-            team=team,
-            tools=tools_for_run,
-            max_turns=DEFAULT_MIND_MAX_TURNS,
-            include_spawn_agent=True,
-            stream_event_limit=MAX_STREAM_EVENTS,
-            text_delta_event_limit=MAX_TEXT_DELTA_EVENTS,
-            autosave_memory_limit=MAX_AUTOSAVE_MEMORIES_PER_RUN,
-        )
-
-        yield {
-            "type": "tool_registry",
-            "content": {
-                "tools": tools_for_run,
-            },
-        }
-
-        async for event in run_agent(
-            prompt=task,
-            system_prompt=build_system_prompt(mind, memories, runtime_manifest),
-            workspace_dir=workspace,
-            team=team,
-            tools_override=tools,
-            max_turns=DEFAULT_MIND_MAX_TURNS,
-        ):
-            yield event
-
-
 async def delegate_to_mind(
     *,
-    mind_store: MindStore,
-    memory_manager: MemoryManager,
+    db_path: Path,
     mind_id: str,
     description: str,
     team: str = "default",
 ) -> AsyncGenerator[dict, None]:
     """Delegate a task to a Mind and stream execution events."""
-    mind = mind_store.load_mind(mind_id)
+    mind = load_mind(db_path, mind_id)
     if mind is None:
         yield {"type": "error", "content": f"Mind '{mind_id}' not found"}
         return
 
     task = Task(mind_id=mind_id, description=description, status="running")
-    mind_store.save_task(mind_id, task)
+
+    # Stateless runtime: use per-run in-memory memory only.
+    runtime_memory = _EphemeralMemory(mind_id)
 
     trace_events: list[dict] = []
 
@@ -346,7 +276,7 @@ async def delegate_to_mind(
             category="mind_insight",
             relevance_keywords=keywords,
         )
-        memory_manager.save(memory)
+        runtime_memory.save(memory)
         autosaved_insights += 1
 
         return {
@@ -365,15 +295,15 @@ async def delegate_to_mind(
     _record(start_event)
     yield start_event
 
-    searched_memories = memory_manager.search(mind_id, description, top_k=8)
-    feedback_memories = memory_manager.list_all(mind_id, category="user_feedback")[
+    searched_memories = runtime_memory.search(mind_id, description, top_k=8)
+    feedback_memories = runtime_memory.list_all(mind_id, category="user_feedback")[
         -MAX_FEEDBACK_CONTEXT_ITEMS:
     ]
-    implicit_feedback_memories = memory_manager.list_all(
+    implicit_feedback_memories = runtime_memory.list_all(
         mind_id,
         category="implicit_feedback",
     )[-MAX_IMPLICIT_CONTEXT_ITEMS:]
-    insight_memories = memory_manager.list_all(mind_id, category="mind_insight")[
+    insight_memories = runtime_memory.list_all(mind_id, category="mind_insight")[
         -MAX_INSIGHT_CONTEXT_ITEMS:
     ]
     memories = _merge_memory_context(
@@ -400,48 +330,147 @@ async def delegate_to_mind(
     yield memory_event
 
     try:
-        async for event in execute_task(
-            mind=mind,
-            task=description,
-            task_id=task.id,
-            team=team,
-            memories=memories,
-            memory_manager=memory_manager,
-            mind_store=mind_store,
-        ):
-            event_type = event.get("type")
-            content = event.get("content")
+        with TemporaryDirectory(prefix="mind-") as workspace:
 
-            if event_type == "text_delta":
-                text_delta_count += 1
-                if text_delta_count > MAX_TEXT_DELTA_EVENTS:
-                    raise RuntimeError(
-                        f"Text delta limit reached ({MAX_TEXT_DELTA_EVENTS})"
+            async def _spawn_agent(objective: str, max_turns: int) -> str:
+                drone = Drone(
+                    mind_id=mind.id,
+                    task_id=task.id,
+                    objective=objective,
+                    status="running",
+                )
+
+                chunks: list[str] = []
+                drone_trace_events: list[dict] = []
+
+                try:
+                    with TemporaryDirectory(prefix="drone-") as drone_workspace:
+                        drone_tools = create_mind_tools(
+                            team=team,
+                            workspace_dir=drone_workspace,
+                            memory_manager=runtime_memory,
+                            mind_id=mind.id,
+                            spawn_agent_fn=_spawn_agent,
+                            include_spawn_agent=False,
+                        )
+                        drone_tool_names = tool_names(drone_tools)
+                        drone_manifest = _build_runtime_manifest(
+                            mind=mind,
+                            team=team,
+                            tools=drone_tool_names,
+                            max_turns=max_turns,
+                            include_spawn_agent=False,
+                            stream_event_limit=MAX_STREAM_EVENTS,
+                            text_delta_event_limit=MAX_TEXT_DELTA_EVENTS,
+                            autosave_memory_limit=MAX_AUTOSAVE_MEMORIES_PER_RUN,
+                        )
+
+                        async for event in run_agent(
+                            prompt=f"[Drone Objective] {objective}",
+                            system_prompt=build_system_prompt(
+                                mind, memories, drone_manifest
+                            ),
+                            workspace_dir=drone_workspace,
+                            team=team,
+                            tools_override=drone_tools,
+                            allowed_tools=drone_tool_names,
+                            max_turns=max_turns,
+                        ):
+                            drone_trace_events.append(event)
+                            if event.get("type") == "text" and isinstance(
+                                event.get("content"), str
+                            ):
+                                chunks.append(event["content"])
+
+                    result = (
+                        "\n".join(chunks[-3:])
+                        if chunks
+                        else "Sub-agent completed with no textual output."
                     )
-            else:
-                event_count += 1
-                if event_count > MAX_STREAM_EVENTS:
-                    raise RuntimeError(f"Event limit reached ({MAX_STREAM_EVENTS})")
+                    drone.status = "completed"
+                    drone.result = result
+                except Exception as exc:
+                    result = f"Drone failed: {exc}"
+                    drone.status = "failed"
+                    drone.result = result
+                finally:
+                    drone.completed_at = datetime.now(timezone.utc)
 
-            if event_type == "text" and isinstance(content, str):
-                latest_text = content
+                return result
 
-            if event_type == "result" and isinstance(content, dict):
-                final_text = content.get("final_text")
-                if isinstance(final_text, str) and final_text.strip():
-                    latest_text = final_text.strip()
+            tools = create_mind_tools(
+                team=team,
+                workspace_dir=workspace,
+                memory_manager=runtime_memory,
+                mind_id=mind.id,
+                spawn_agent_fn=_spawn_agent,
+                include_spawn_agent=True,
+            )
+            tools_for_run = tool_names(tools)
+            runtime_manifest = _build_runtime_manifest(
+                mind=mind,
+                team=team,
+                tools=tools_for_run,
+                max_turns=DEFAULT_MIND_MAX_TURNS,
+                include_spawn_agent=True,
+                stream_event_limit=MAX_STREAM_EVENTS,
+                text_delta_event_limit=MAX_TEXT_DELTA_EVENTS,
+                autosave_memory_limit=MAX_AUTOSAVE_MEMORIES_PER_RUN,
+            )
 
-                subtype = content.get("subtype")
-                error_message = content.get("error_message")
-                if isinstance(subtype, str) and subtype in {"error", "aborted"}:
-                    emitted_terminal_result_error = True
-                    if isinstance(error_message, str) and error_message.strip():
-                        run_failure_reason = error_message.strip()
-                    else:
-                        run_failure_reason = f"Mind run ended with subtype={subtype}"
+            tool_registry_event = {
+                "type": "tool_registry",
+                "content": {
+                    "tools": tools_for_run,
+                },
+            }
+            event_count += 1
+            if event_count > MAX_STREAM_EVENTS:
+                raise RuntimeError(f"Event limit reached ({MAX_STREAM_EVENTS})")
+            _record(tool_registry_event)
+            yield tool_registry_event
 
-            _record(event)
-            yield event
+            async for event in run_agent(
+                prompt=description,
+                system_prompt=build_system_prompt(mind, memories, runtime_manifest),
+                workspace_dir=workspace,
+                team=team,
+                tools_override=tools,
+                max_turns=DEFAULT_MIND_MAX_TURNS,
+            ):
+                event_type = event.get("type")
+                content = event.get("content")
+
+                if event_type == "text_delta":
+                    text_delta_count += 1
+                    if text_delta_count > MAX_TEXT_DELTA_EVENTS:
+                        raise RuntimeError(
+                            f"Text delta limit reached ({MAX_TEXT_DELTA_EVENTS})"
+                        )
+                else:
+                    event_count += 1
+                    if event_count > MAX_STREAM_EVENTS:
+                        raise RuntimeError(f"Event limit reached ({MAX_STREAM_EVENTS})")
+
+                if event_type == "text" and isinstance(content, str):
+                    latest_text = content
+
+                if event_type == "result" and isinstance(content, dict):
+                    final_text = content.get("final_text")
+                    if isinstance(final_text, str) and final_text.strip():
+                        latest_text = final_text.strip()
+
+                    subtype = content.get("subtype")
+                    error_message = content.get("error_message")
+                    if isinstance(subtype, str) and subtype in {"error", "aborted"}:
+                        emitted_terminal_result_error = True
+                        if isinstance(error_message, str) and error_message.strip():
+                            run_failure_reason = error_message.strip()
+                        else:
+                            run_failure_reason = f"Mind run ended with subtype={subtype}"
+
+                _record(event)
+                yield event
 
         if run_failure_reason:
             raise RuntimeError(run_failure_reason)
@@ -449,7 +478,6 @@ async def delegate_to_mind(
         task.status = "completed"
         task.result = latest_text
         task.completed_at = datetime.now(timezone.utc)
-        mind_store.save_task(mind_id, task)
 
         if latest_text and autosaved_memories < MAX_AUTOSAVE_MEMORIES_PER_RUN:
             memory = MemoryEntry(
@@ -458,7 +486,7 @@ async def delegate_to_mind(
                 category="task_result",
                 relevance_keywords=["task", "result", "completion"],
             )
-            memory_manager.save(memory)
+            runtime_memory.save(memory)
             autosaved_memories += 1
 
             memory_saved_event = {
@@ -484,7 +512,6 @@ async def delegate_to_mind(
         task.status = "failed"
         task.result = str(exc)
         task.completed_at = datetime.now(timezone.utc)
-        mind_store.save_task(mind_id, task)
         should_emit_error_event = not (
             emitted_terminal_result_error and run_failure_reason == str(exc)
         )
@@ -506,5 +533,4 @@ async def delegate_to_mind(
             "content": {"task_id": task.id, "status": task.status},
         }
         _record(complete_event)
-        mind_store.save_task_trace(mind_id, task.id, trace_events)
         yield complete_event

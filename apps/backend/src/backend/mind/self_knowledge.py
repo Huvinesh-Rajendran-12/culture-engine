@@ -17,7 +17,6 @@ PROGRAM_PARTS = [
     {"name": "tool_registry", "path": "backend/agents/tools.py"},
     {"name": "reasoning", "path": "backend/mind/reasoning.py"},
     {"name": "pipeline", "path": "backend/mind/pipeline.py"},
-    {"name": "service_layer", "path": "backend/mind/service.py"},
     {"name": "memory_store", "path": "backend/mind/memory.py"},
     {"name": "persistence_store", "path": "backend/mind/store.py"},
     {"name": "event_contract", "path": "backend/mind/events.py"},

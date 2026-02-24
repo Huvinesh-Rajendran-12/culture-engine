@@ -13,7 +13,6 @@ from ..config import (
     DEFAULT_SPAWN_MAX_CALLS,
     DEFAULT_SPAWN_MAX_TURNS,
 )
-from ..memory import MemoryManager
 from ..schema import MemoryEntry
 
 
@@ -22,7 +21,7 @@ def _text_result(value: str) -> AgentToolResult:
 
 
 def create_memory_tools(
-    memory_manager: MemoryManager,
+    memory_manager: Any,
     mind_id: str,
     *,
     max_saves: int = DEFAULT_MEMORY_SAVE_MAX_CALLS,

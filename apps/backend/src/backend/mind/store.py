@@ -1,4 +1,4 @@
-"""SQLite-backed persistence for Mind profiles and task history."""
+"""SQLite-backed persistence primitives for Minds, tasks, and drone traces."""
 
 from __future__ import annotations
 
@@ -11,195 +11,188 @@ from .database import create_connection, init_db
 from .schema import Drone, MindProfile, Task
 
 
-class MindStore:
-    """Stores Mind profiles and task history in SQLite."""
-
-    def __init__(self, db_path: Path):
-        self._db_path = db_path
-        conn = init_db(db_path)
+@contextmanager
+def connect(db_path: Path):
+    conn = create_connection(db_path)
+    try:
+        yield conn
+    finally:
         conn.close()
 
-    @contextmanager
-    def _connect(self):
-        conn = create_connection(self._db_path)
-        try:
-            yield conn
-        finally:
-            conn.close()
 
-    def save_mind(self, mind: MindProfile) -> str:
-        """Save a Mind profile. Returns the Mind ID."""
-        with self._connect() as conn:
-            conn.execute(
-                """INSERT OR REPLACE INTO minds
-                   (id, name, personality, preferences, system_prompt, charter, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    mind.id,
-                    mind.name,
-                    mind.personality,
-                    json.dumps(mind.preferences),
-                    mind.system_prompt,
-                    json.dumps(mind.charter.model_dump(mode="json")),
-                    mind.created_at.isoformat(),
-                ),
-            )
-            conn.commit()
-        return mind.id
+# ── Mind primitives ────────────────────────────────────────────────────────
 
-    def load_mind(self, mind_id: str) -> Optional[MindProfile]:
-        """Load a Mind profile by ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM minds WHERE id = ?", (mind_id,)
-            ).fetchone()
-        if row is None:
-            return None
-        return _row_to_mind(row)
 
-    def list_minds(self) -> list[MindProfile]:
-        """List all Mind profiles."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM minds ORDER BY created_at"
-            ).fetchall()
-        return [_row_to_mind(row) for row in rows]
+def save_mind(db_path: Path, mind: MindProfile) -> str:
+    with connect(db_path) as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO minds
+               (id, name, personality, preferences, system_prompt, charter, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                mind.id,
+                mind.name,
+                mind.personality,
+                json.dumps(mind.preferences),
+                mind.system_prompt,
+                json.dumps(mind.charter.model_dump(mode="json")),
+                mind.created_at.isoformat(),
+            ),
+        )
+        conn.commit()
+    return mind.id
 
-    def delete_mind(self, mind_id: str) -> bool:
-        """Delete a Mind profile and all associated persisted records."""
-        with self._connect() as conn:
-            conn.execute("DELETE FROM task_traces WHERE mind_id = ?", (mind_id,))
-            conn.execute("DELETE FROM drone_traces WHERE mind_id = ?", (mind_id,))
-            conn.execute("DELETE FROM drones WHERE mind_id = ?", (mind_id,))
-            conn.execute("DELETE FROM tasks WHERE mind_id = ?", (mind_id,))
-            conn.execute("DELETE FROM memories WHERE mind_id = ?", (mind_id,))
-            cursor = conn.execute("DELETE FROM minds WHERE id = ?", (mind_id,))
-            conn.commit()
-        return cursor.rowcount > 0
 
-    def save_task(self, mind_id: str, task: Task) -> str:
-        """Save a task to a Mind's task history."""
-        with self._connect() as conn:
-            conn.execute(
-                """INSERT OR REPLACE INTO tasks
-                   (id, mind_id, description, status, result, created_at, completed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    task.id,
-                    mind_id,
-                    task.description,
-                    task.status,
-                    task.result,
-                    task.created_at.isoformat(),
-                    task.completed_at.isoformat() if task.completed_at else None,
-                ),
-            )
-            conn.commit()
-        return task.id
+def load_mind(db_path: Path, mind_id: str) -> Optional[MindProfile]:
+    with connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM minds WHERE id = ?", (mind_id,)).fetchone()
+    if row is None:
+        return None
+    return _row_to_mind(row)
 
-    def load_task(self, mind_id: str, task_id: str) -> Optional[Task]:
-        """Load a specific task."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM tasks WHERE id = ? AND mind_id = ?",
-                (task_id, mind_id),
-            ).fetchone()
-        if row is None:
-            return None
-        return _row_to_task(row)
 
-    def list_tasks(self, mind_id: str) -> list[Task]:
-        """List all tasks for a Mind, most recent first."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM tasks WHERE mind_id = ? ORDER BY created_at DESC",
-                (mind_id,),
-            ).fetchall()
-        return [_row_to_task(row) for row in rows]
+def list_minds(db_path: Path) -> list[MindProfile]:
+    with connect(db_path) as conn:
+        rows = conn.execute("SELECT * FROM minds ORDER BY created_at").fetchall()
+    return [_row_to_mind(row) for row in rows]
 
-    def save_task_trace(self, mind_id: str, task_id: str, events: list[dict]) -> None:
-        """Persist task execution trace events."""
-        with self._connect() as conn:
-            conn.execute(
-                """INSERT OR REPLACE INTO task_traces (mind_id, task_id, events)
-                   VALUES (?, ?, ?)""",
-                (mind_id, task_id, json.dumps(events, default=str)),
-            )
-            conn.commit()
 
-    def load_task_trace(self, mind_id: str, task_id: str) -> Optional[dict]:
-        """Load a persisted task trace by task ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM task_traces WHERE mind_id = ? AND task_id = ?",
-                (mind_id, task_id),
-            ).fetchone()
-        if row is None:
-            return None
-        return {
-            "mind_id": row["mind_id"],
-            "task_id": row["task_id"],
-            "events": json.loads(row["events"]),
-        }
+def delete_mind(db_path: Path, mind_id: str) -> bool:
+    with connect(db_path) as conn:
+        conn.execute("DELETE FROM task_traces WHERE mind_id = ?", (mind_id,))
+        conn.execute("DELETE FROM drone_traces WHERE mind_id = ?", (mind_id,))
+        conn.execute("DELETE FROM drones WHERE mind_id = ?", (mind_id,))
+        conn.execute("DELETE FROM tasks WHERE mind_id = ?", (mind_id,))
+        conn.execute("DELETE FROM memories WHERE mind_id = ?", (mind_id,))
+        cursor = conn.execute("DELETE FROM minds WHERE id = ?", (mind_id,))
+        conn.commit()
+    return cursor.rowcount > 0
 
-    # ── Drone persistence ──────────────────────────────────────────────────
 
-    def save_drone(self, drone: Drone) -> str:
-        """Save a Drone record. Returns the Drone ID."""
-        with self._connect() as conn:
-            conn.execute(
-                """INSERT OR REPLACE INTO drones
-                   (id, mind_id, task_id, objective, status, result, created_at, completed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    drone.id,
-                    drone.mind_id,
-                    drone.task_id,
-                    drone.objective,
-                    drone.status,
-                    drone.result,
-                    drone.created_at.isoformat(),
-                    drone.completed_at.isoformat() if drone.completed_at else None,
-                ),
-            )
-            conn.commit()
-        return drone.id
+# ── Task primitives ────────────────────────────────────────────────────────
 
-    def list_drones(self, mind_id: str, task_id: str) -> list[Drone]:
-        """List all drones spawned for a specific task."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM drones WHERE mind_id = ? AND task_id = ? ORDER BY created_at",
-                (mind_id, task_id),
-            ).fetchall()
-        return [_row_to_drone(row) for row in rows]
 
-    def save_drone_trace(
-        self, mind_id: str, drone_id: str, events: list[dict]
-    ) -> None:
-        """Persist drone execution trace events."""
-        with self._connect() as conn:
-            conn.execute(
-                """INSERT OR REPLACE INTO drone_traces (mind_id, drone_id, events)
-                   VALUES (?, ?, ?)""",
-                (mind_id, drone_id, json.dumps(events, default=str)),
-            )
-            conn.commit()
+def save_task(db_path: Path, mind_id: str, task: Task) -> str:
+    with connect(db_path) as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO tasks
+               (id, mind_id, description, status, result, created_at, completed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                task.id,
+                mind_id,
+                task.description,
+                task.status,
+                task.result,
+                task.created_at.isoformat(),
+                task.completed_at.isoformat() if task.completed_at else None,
+            ),
+        )
+        conn.commit()
+    return task.id
 
-    def load_drone_trace(self, mind_id: str, drone_id: str) -> Optional[dict]:
-        """Load a persisted drone trace by drone ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM drone_traces WHERE mind_id = ? AND drone_id = ?",
-                (mind_id, drone_id),
-            ).fetchone()
-        if row is None:
-            return None
-        return {
-            "mind_id": row["mind_id"],
-            "drone_id": row["drone_id"],
-            "events": json.loads(row["events"]),
-        }
+
+def load_task(db_path: Path, mind_id: str, task_id: str) -> Optional[Task]:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM tasks WHERE id = ? AND mind_id = ?",
+            (task_id, mind_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return _row_to_task(row)
+
+
+def list_tasks(db_path: Path, mind_id: str) -> list[Task]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM tasks WHERE mind_id = ? ORDER BY created_at DESC",
+            (mind_id,),
+        ).fetchall()
+    return [_row_to_task(row) for row in rows]
+
+
+def save_task_trace(db_path: Path, mind_id: str, task_id: str, events: list[dict]) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO task_traces (mind_id, task_id, events)
+               VALUES (?, ?, ?)""",
+            (mind_id, task_id, json.dumps(events, default=str)),
+        )
+        conn.commit()
+
+
+def load_task_trace(db_path: Path, mind_id: str, task_id: str) -> Optional[dict]:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM task_traces WHERE mind_id = ? AND task_id = ?",
+            (mind_id, task_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "mind_id": row["mind_id"],
+        "task_id": row["task_id"],
+        "events": json.loads(row["events"]),
+    }
+
+
+# ── Drone primitives ───────────────────────────────────────────────────────
+
+
+def save_drone(db_path: Path, drone: Drone) -> str:
+    with connect(db_path) as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO drones
+               (id, mind_id, task_id, objective, status, result, created_at, completed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                drone.id,
+                drone.mind_id,
+                drone.task_id,
+                drone.objective,
+                drone.status,
+                drone.result,
+                drone.created_at.isoformat(),
+                drone.completed_at.isoformat() if drone.completed_at else None,
+            ),
+        )
+        conn.commit()
+    return drone.id
+
+
+def list_drones(db_path: Path, mind_id: str, task_id: str) -> list[Drone]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM drones WHERE mind_id = ? AND task_id = ? ORDER BY created_at",
+            (mind_id, task_id),
+        ).fetchall()
+    return [_row_to_drone(row) for row in rows]
+
+
+def save_drone_trace(db_path: Path, mind_id: str, drone_id: str, events: list[dict]) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO drone_traces (mind_id, drone_id, events)
+               VALUES (?, ?, ?)""",
+            (mind_id, drone_id, json.dumps(events, default=str)),
+        )
+        conn.commit()
+
+
+def load_drone_trace(db_path: Path, mind_id: str, drone_id: str) -> Optional[dict]:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM drone_traces WHERE mind_id = ? AND drone_id = ?",
+            (mind_id, drone_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "mind_id": row["mind_id"],
+        "drone_id": row["drone_id"],
+        "events": json.loads(row["events"]),
+    }
 
 
 def _row_to_mind(row: dict) -> MindProfile:
