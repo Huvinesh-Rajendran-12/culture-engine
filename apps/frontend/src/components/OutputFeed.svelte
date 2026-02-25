@@ -17,7 +17,7 @@
 
 <div class="output-feed">
   {#if items.length === 0 && !busy}
-    <span class="muted">No output yet -- delegate a task to see what this Mind produces.</span>
+    <span class="muted">No output yet — run a task to see results.</span>
   {:else}
     {#each items as item, i (i)}
       {#if item.kind === "text"}
@@ -33,24 +33,6 @@
             <span class="activity-err">failed</span>
           {:else if item.status === "pending"}
             <span class="activity-pending">...</span>
-          {/if}
-        </div>
-      {:else if item.kind === "spawn"}
-        <div class="spawn-output" data-error={item.isError}>
-          <div class="spawn-output-head">
-            <span class="spawn-output-glyph">{"\u2295"}</span>
-            <span class="spawn-output-label">Sub-task delegated</span>
-          </div>
-          <p class="spawn-output-objective">{item.objective}</p>
-          {#if item.result}
-            <p class="spawn-output-result">{item.result}</p>
-          {:else if busy}
-            <span class="spawn-output-running">
-              <span class="composing-dot"></span>
-              <span class="composing-dot"></span>
-              <span class="composing-dot"></span>
-              running...
-            </span>
           {/if}
         </div>
       {/if}
@@ -146,49 +128,6 @@
   @keyframes dot-pulse {
     0%, 100% { opacity: 1;   transform: scale(1); }
     50%       { opacity: 0.4; transform: scale(0.65); }
-  }
-
-  .spawn-output {
-    border: 1px solid rgba(110, 169, 216, 0.2);
-    border-left: 3px solid rgba(110, 169, 216, 0.55);
-    border-radius: var(--radius, 8px);
-    background: rgba(5, 12, 22, 0.84);
-    padding: 11px 12px 11px 14px;
-    animation: event-rise 250ms ease-out;
-  }
-  .spawn-output[data-error="true"] {
-    border-left-color: rgba(204, 90, 90, 0.75);
-    border-color: rgba(204, 90, 90, 0.18);
-    background: rgba(18, 5, 5, 0.84);
-  }
-  .spawn-output-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .spawn-output-glyph { font-size: 0.85rem; color: var(--sky); line-height: 1; }
-  .spawn-output-label {
-    font-family: var(--font-heading);
-    font-size: 0.6rem;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    color: var(--sky);
-    opacity: 0.8;
-  }
-  .spawn-output-objective { color: var(--ink-2); font-size: 0.92rem; margin-bottom: 6px; }
-  .spawn-output-result {
-    font-family: var(--font-mono);
-    font-size: 0.71rem;
-    color: var(--ink-3);
-    white-space: pre-wrap;
-    word-break: break-word;
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: 4px;
-    padding: 6px 8px;
-  }
-  .spawn-output-running {
-    font-family: var(--font-mono);
-    font-size: 0.68rem;
-    color: var(--gold-mid);
-    display: flex;
-    align-items: center;
-    gap: 4px;
   }
 
   .composing-block {

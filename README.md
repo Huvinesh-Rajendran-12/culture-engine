@@ -1,6 +1,6 @@
 # Culture Engine
 
-Culture Engine is a delegation platform powered by persistent autonomous **Minds** with explicit **Drone** sub-agent traces.
+Culture Engine is a lightweight agent runner powered by the Anthropic SDK, with a spatial observatory frontend for interactive prompt-driven sessions.
 
 ---
 
@@ -8,8 +8,9 @@ Culture Engine is a delegation platform powered by persistent autonomous **Minds
 
 | Directory | Stack | Description |
 |---|---|---|
-| `apps/backend` | Python, FastAPI, Anthropic SDK, SQLite | API for Mind delegation, task traces, and memory |
-| `apps/frontend` | Svelte, Vite, TypeScript | Spatial Mind Observatory web client |
+| `apps/backend` | Python, FastAPI, Anthropic SDK | Agent runner API with SSE streaming |
+| `apps/frontend` | Svelte 5, Vite, TypeScript | Agent Observatory web client |
+| `apps/agent_harness` | Elixir, Req, Jason | Experimental Elixir agent harness (side project) |
 
 ---
 
@@ -18,7 +19,6 @@ Culture Engine is a delegation platform powered by persistent autonomous **Minds
 ### Prerequisites
 - [uv](https://docs.astral.sh/uv/)
 - [Bun](https://bun.sh/) 1.0+
-- Node.js 18+ (optional, only if you prefer npm in local workflows)
 
 ### 1) Run backend
 
@@ -39,50 +39,48 @@ bun run dev:frontend
 bun run dev
 ```
 
-- Frontend: `http://localhost:5173` (or next available port)
+- Frontend: `http://localhost:5174`
 - Backend: `http://localhost:8100`
 - Swagger: `http://localhost:8100/docs`
 
 ---
 
-## Backend API shape
+## Backend API
 
-### Culture Engine (new)
-- `POST /api/minds`
-- `GET /api/minds`
-- `GET /api/minds/{mind_id}`
-- `PATCH /api/minds/{mind_id}`
-- `POST /api/minds/{mind_id}/feedback`
-- `POST /api/minds/{mind_id}/delegate` (SSE)
-- `GET /api/minds/{mind_id}/tasks`
-- `GET /api/minds/{mind_id}/tasks/{task_id}`
-- `GET /api/minds/{mind_id}/tasks/{task_id}/drones`
-- `GET /api/minds/{mind_id}/tasks/{task_id}/trace`
-- `GET /api/minds/{mind_id}/drones/{drone_id}/trace`
-- `GET /api/minds/{mind_id}/memory`
+- `GET /health` — health check
+- `POST /run` — run an agent session (SSE stream)
 
-Mind learning supports explicit feedback plus profile-update preference signals.
+The `/run` endpoint accepts:
+```json
+{
+  "prompt": "Your task description",
+  "system_prompt": "",
+  "team": "default",
+  "workspace_dir": null,
+  "allowed_tools": null,
+  "max_turns": 50
+}
+```
 
-### Health
-- `GET /api/health`
+It returns a Server-Sent Events stream with event types: `text`, `tool_use`, `tool_result`, `result`, `error`.
+
+### Available Agent Tools
+
+The agent has access to workspace-sandboxed tools:
+- `read_file` — read a text file
+- `write_file` — write content to a file
+- `edit_file` — replace text in a file
+- `run_command` — run a shell command (30s timeout, sanitized env)
 
 ---
 
 ## Current Direction
 
-- **Phase 1 complete (simplified):** Mind identity + memory + reasoning + single-path delegation pipeline.
-- **Phase 2 (simplified foundation) now in place:**
-  - plain per-run tool list assembly,
-  - memory primitives (`memory_save`, `memory_search`),
-  - explicit sub-agent delegation (`spawn_agent`),
-  - SQLite (WAL mode) persistence with FTS5 full-text memory search.
-- **Frontend observatory now active:**
-  - central Nexus + task constellation,
-  - persistent commission bar,
-  - Activity Stream (Output/Trace) and overlays for memory/task/profile views.
-- Deferred intentionally: runtime tool registration API and persistent dynamic tool store.
-
 Design principle: **simplify first, extend second**.
+
+The Mind/Drone delegation architecture has been removed in favor of a minimal agent runner.
+Future iterations may re-introduce persistence, memory, and multi-agent orchestration
+on top of this simplified foundation.
 
 ---
 

@@ -1,21 +1,16 @@
 <script lang="ts">
   let {
-    mindName = "No Mind Selected",
-    mindId = "",
     busy = false,
     status = "idle",
   }: {
-    mindName?: string;
-    mindId?: string;
     busy?: boolean;
     status?: string;
   } = $props();
 
   let statusLabel = $derived.by(() => {
-    if (!mindId) return "select a mind";
     if (busy) return "processing";
     if (status === "completed") return "ready";
-    if (status === "failed" || status === "error") return "recovering";
+    if (status === "error") return "error";
     return "standing by";
   });
 </script>
@@ -30,7 +25,7 @@
   <div class="nexus-core">
     <span class="nexus-core-glow" aria-hidden="true"></span>
     <span class="nexus-title">Nexus</span>
-    <span class="nexus-name">{mindName}</span>
+    <span class="nexus-name">Agent Runner</span>
     <span class="nexus-status">{statusLabel}</span>
   </div>
 </section>
