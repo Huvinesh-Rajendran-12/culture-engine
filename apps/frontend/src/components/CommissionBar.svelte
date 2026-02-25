@@ -1,12 +1,10 @@
 <script lang="ts">
   let {
-    selectedMindId = "",
     taskText = $bindable(""),
     teamName = $bindable("default"),
     busy = false,
     onSubmit,
   }: {
-    selectedMindId?: string;
     taskText: string;
     teamName: string;
     busy?: boolean;
@@ -26,29 +24,29 @@
     textareaEl.style.height = `${Math.min(220, textareaEl.scrollHeight)}px`;
   }
 
-  function submitDelegation(event: Event): void {
+  function submitRun(event: Event): void {
     event.preventDefault();
-    if (!selectedMindId || busy || !taskText.trim()) return;
+    if (busy || !taskText.trim()) return;
     void onSubmit?.();
   }
 
   function onTextareaKeydown(event: KeyboardEvent): void {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
-      if (!selectedMindId || busy || !taskText.trim()) return;
+      if (busy || !taskText.trim()) return;
       void onSubmit?.();
     }
   }
 </script>
 
-<form class="commission-bar" onsubmit={submitDelegation}>
+<form class="commission-bar" onsubmit={submitRun}>
   <label class="commission-input-wrap">
-    <span class="sr-only">Delegation brief</span>
+    <span class="sr-only">Task prompt</span>
     <textarea
       bind:this={textareaEl}
       bind:value={taskText}
       class="commission-textarea"
-      placeholder="Commission the Mind..."
+      placeholder="Describe a task for the agent..."
       rows="1"
       oninput={resizeTextarea}
       onkeydown={onTextareaKeydown}
@@ -63,9 +61,9 @@
   <button
     type="submit"
     class="commission-submit"
-    disabled={!selectedMindId || busy || !taskText.trim()}
+    disabled={busy || !taskText.trim()}
   >
-    {busy ? "Delegating..." : "Delegate"}
+    {busy ? "Running..." : "Run"}
   </button>
 </form>
 

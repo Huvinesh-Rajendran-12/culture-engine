@@ -39,8 +39,8 @@ jobs:
       - name: Sync backend dependencies
         run: uv sync --frozen --group dev
 
-      - name: Run Mind backend tests
-        run: uv run python -m pytest tests/test_mind_api.py tests/test_mind_persistence.py
+      - name: Run backend tests
+        run: uv run python -m pytest tests/test_agent_base.py
 
   frontend:
     name: frontend-build

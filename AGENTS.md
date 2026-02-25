@@ -2,19 +2,17 @@
 
 This is the agent-facing map for the `culture-engine/` monorepo.
 
-The project is currently in a **transition state**:
-1. New **Culture Engine** (Mind/Drone architecture) is the active API surface.
-2. Legacy workflow runtime has been removed; only archived artifacts remain.
-
-When in doubt, preserve compatibility and keep changes simple.
+The project has been simplified to a **minimal agent runner**. The previous Mind/Drone
+architecture has been removed. When in doubt, keep changes simple and aligned with this
+minimal foundation.
 
 ---
 
 ## 1) Monorepo Overview
 
-- `apps/backend` — FastAPI + direct Anthropic/OpenRouter runtime
-- `apps/frontend` — Svelte + Vite Spatial Mind Observatory UI
-- `apps/workflows` — archived legacy workflow JSON artifacts
+- `apps/backend` — Python FastAPI agent runner with SSE streaming
+- `apps/frontend` — Svelte 5 + Vite Agent Observatory UI
+- `apps/agent_harness` — Elixir experimental agent harness (side project)
 
 Root scripts (`package.json`):
 - `dev:frontend`
@@ -25,102 +23,66 @@ Root scripts (`package.json`):
 
 ## 2) Product Shape (Current)
 
-### A) Culture Engine (new path)
-Main concept: user delegates tasks to a persistent **Mind**.
+### Backend: Agent Runner
+The backend is a minimal agent runner. The user submits a prompt and receives an SSE
+stream of events as the agent works.
 
 Current backend endpoints:
-- `GET /api/health`
-- `POST /api/minds`
-- `GET /api/minds`
-- `GET /api/minds/{mind_id}`
-- `PATCH /api/minds/{mind_id}`
-- `POST /api/minds/{mind_id}/feedback`
-- `POST /api/minds/{mind_id}/delegate` (SSE)
-- `GET /api/minds/{mind_id}/tasks`
-- `GET /api/minds/{mind_id}/tasks/{task_id}`
-- `GET /api/minds/{mind_id}/tasks/{task_id}/drones`
-- `GET /api/minds/{mind_id}/tasks/{task_id}/trace`
-- `GET /api/minds/{mind_id}/drones/{drone_id}/trace`
-- `GET /api/minds/{mind_id}/memory`
+- `GET /health`
+- `POST /run` (SSE stream)
 
-Phase 1 scope intentionally simplified:
-- single-path orchestration (no automatic sub-agent splitting)
-- SQLite (WAL mode) persistence with FTS5 memory search
-- prompt composition from identity + memory
+The `/run` endpoint accepts a `RunRequest`:
+- `prompt` (required) — the task description
+- `system_prompt` — optional system prompt override
+- `team` — team name (default: `"default"`)
+- `workspace_dir` — optional workspace path
+- `allowed_tools` — optional tool allowlist
+- `max_turns` — max agent loop iterations (default: 50)
 
-### B) Legacy Runtime (removed workflow path)
-Legacy workflow API endpoints and internal workflow execution modules have been removed.
-Only archived workflow JSON artifacts remain under `apps/workflows/`.
+SSE event types: `text`, `tool_use`, `tool_result`, `result`, `error`.
 
-### C) Frontend Observatory (current)
-The frontend is a single-view observatory experience (no sidebar page nav):
-- top bar: Mind selector + profile/create actions + Memory Vault access
-- center canvas: Nexus (Mind core) + task constellation
-- live panel: Activity Stream (Output / Trace)
-- bottom rail: persistent Commission Bar for delegation
-- overlays: Task Detail, Mind Profile/Create, Memory Vault
+### Frontend: Agent Observatory
+The frontend is a single-view observatory experience:
+- top bar: brand header + status chip
+- center canvas: Nexus status indicator + Activity Stream (Output / Trace)
+- bottom rail: persistent prompt bar for task submission
 
 ---
 
 ## 3) Backend Architecture (`apps/backend/src/backend`)
 
-### Stable shared layer
-- `agents/base.py` — shared `run_agent(...)` wrapper over direct Anthropic/OpenRouter calls
-- `agents/anthropic_stream.py` — LEGACY compatibility shim (no longer used by runtime)
-- SSE event contract (`type` + `content`) must remain compatible; new envelope fields are additive only
+| File | Responsibility |
+|---|---|
+| `main.py` | FastAPI app — `/health` and `/run` endpoints |
+| `config.py` | Pydantic `BaseSettings` (env-based config) |
+| `agents/base.py` | `run_agent()` — Anthropic/OpenRouter agent loop, yields SSE events |
+| `agents/tools.py` | Workspace tools: `read_file`, `write_file`, `edit_file`, `run_command` |
+| `agents/types.py` | `AgentTool`, `AgentToolResult`, `AgentToolSchema`, `TextContent` |
 
-### Culture Engine layer
-- `mind/schema.py` — Mind/Drone/Task/Memory models
-- `mind/database.py` — SQLite schema, WAL mode init, FTS5 virtual table + triggers
-- `mind/identity.py` — Mind creation helpers
-- `mind/memory.py` — SQLite-backed memory manager with FTS5 search
-- `mind/store.py` — SQLite-backed profile + task persistence
-- `mind/events.py` — canonical event envelope (`id`, `seq`, `ts`, `trace_id`) + stream wrapper
-- `mind/exceptions.py` — protocol-agnostic domain exceptions for Mind operations
-- `mind/service.py` — protocol-agnostic Mind service layer used by HTTP handlers
-- `main.py` — HTTP adapter + `_migrate_legacy_json()` one-time migration (lifespan handler, marker-file guarded)
-- `mind/config.py` — centralized Mind runtime limits and defaults
-- `mind/reasoning.py` — dynamic system prompt + agent execution
-- `mind/pipeline.py` — delegate flow (load memory → execute → persist)
-- `mind/tools/factory.py` — plain per-run tool list assembly
-- `mind/tools/primitives.py` — Mind-specific primitives (`memory_save`, `memory_search`, `spawn_agent`)
+### Agent Tool Safety
 
-### Supporting tooling layer
-- `agents/api_catalog.py`, `agents/kb_search.py`, `agents/tools.py`
+- All file tools resolve paths through `_resolve_path()` to prevent workspace escape
+- `run_command` runs in an isolated environment with a 30s timeout and 50 KB output cap
+- For filesystem search, prefer `rg` (content) and `fd` (file paths)
 
 ---
 
-## 4) Simplification Rules (Important)
+## 4) Simplification Rules
 
 1. Prefer the smallest vertical slice that works.
 2. Avoid speculative abstractions.
 3. Keep orchestration explicit; avoid hidden magic.
-4. Create directories only on write paths (not on reads).
-5. Keep temporary workspace lifecycle automatic and bounded.
-6. Preserve backward compatibility unless explicitly removed.
-7. Keep transport handlers thin; put domain logic in `mind/service.py`.
+4. Keep temporary workspace lifecycle automatic and bounded.
+5. SSE event contract: `type` + `content` required; additional fields are additive only.
 
 ---
 
 ## 5) Tooling Philosophy
 
-Current shared tool allowlist remains in:
-- `agents/tools.py` → `DEFAULT_TOOL_NAMES`
+Tool allowlist in `agents/tools.py` → `DEFAULT_TOOL_NAMES`:
+- `read_file`, `write_file`, `edit_file`, `run_command`
 
-Guideline:
-- composition/prompting first,
-- new tools only when necessary.
-
-Culture Engine Phase 2 was intentionally simplified:
-- no runtime tool registration API yet,
-- no persistent dynamic tool store yet,
-- no separate tool-registry abstraction.
-
-Current Mind tool assembly is a plain list built per run:
-- legacy composable tools from `agents/tools.py`
-- `memory_save`
-- `memory_search`
-- `spawn_agent` (explicit sub-agent delegation)
+Guideline: composition/prompting first, new tools only when necessary.
 
 ---
 
@@ -129,7 +91,7 @@ Current Mind tool assembly is a plain list built per run:
 Backend env (`apps/backend/.env`):
 - `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY`
 - optional `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`
-- `DEFAULT_MODEL`
+- `DEFAULT_MODEL` (`haiku`, `sonnet`, or `opus`)
 
 Run backend:
 ```bash
@@ -142,9 +104,6 @@ Run frontend:
 ```bash
 bun install
 bun run dev:frontend
-
-# or from apps/frontend:
-bun run dev
 ```
 
 ---
@@ -153,53 +112,23 @@ bun run dev
 
 - Keep tool names in snake_case.
 - Maintain workspace path safety for file tools.
-- Preserve SSE message compatibility (`type` + `content` required; envelope fields are additive).
+- Preserve SSE message compatibility (`type` + `content` required).
 - Keep docs aligned with implementation in `src/backend/`.
-- Mark legacy codepaths clearly with `LEGACY` comments/docstrings.
 - For filesystem discovery via `run_command`, prefer `rg` (content) and `fd` (file paths).
 
 ---
 
-## 8) PR Review Comment Handling (Codex/GitHub bots/humans)
+## 8) Testing
 
-When a PR gets review comments, follow this flow:
-
-1. **Fetch the latest comments first**
-   - Identify the current PR: `gh pr status`
-   - Pull latest bot reviews/comments with `gh api` (prefer structured JSON + `jq` over manual UI scanning).
-
-2. **Validate each comment against current HEAD**
-   - Read the referenced files before changing anything.
-   - Reproduce critical claims with quick checks (e.g., path resolution, mode flags, resource lifecycle).
-   - Mark each comment as: **valid / partially valid / not valid** with a short reason.
-
-3. **Fix only what is valid, with minimal compatible changes**
-   - Prioritize **P1 security/reliability** items first.
-   - Preserve backward compatibility and SSE contracts.
-   - Keep fixes explicit (no speculative abstractions).
-
-4. **Patterns we now enforce in Mind pipeline code**
-   - Keep streaming contracts stable (`type` + `content` required; envelope-only additions are OK).
-   - Keep run limits explicit and centralized in `mind/config.py`.
-   - Ensure task/drone traces are persisted on both success and failure paths.
-
-5. **Verify before shipping**
-   - Run backend tests: `cd apps/backend && uv run python -m pytest`
-   - Ensure working tree is clean except intended changes.
-
-6. **Ship and request re-review**
-   - Commit with a focused message.
-   - Push branch.
-   - Tag Codex again on the PR, e.g.:
-     - `gh pr comment <pr_number> --body "@codex review\n\nAddressed latest feedback in <commit>."`
-
-If feedback is not valid, do **not** churn code; reply on PR with concise technical rationale.
+```bash
+cd apps/backend
+uv run python -m pytest tests/test_agent_base.py
+```
 
 ---
 
 ## 9) Near-term Plan
 
-1. Keep Phase 1/2 core stable (Mind + memory + explicit `spawn_agent`).
-2. Add focused tests for Mind core, delegation pipeline, and tool events.
-3. Improve sub-agent orchestration quality before adding new abstractions.
-4. Revisit runtime tool registration only after clear product need appears.
+1. Keep the minimal agent runner stable.
+2. Add focused tests for agent loop and tool execution.
+3. Future: re-introduce persistence, memory, and multi-agent orchestration on this foundation.
