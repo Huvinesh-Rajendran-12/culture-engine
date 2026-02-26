@@ -36,6 +36,10 @@ jj diff                      # Show changes in current commit
 jj git push                  # Push to remote
 jj git fetch                 # Fetch from remote
 ```
+### Document update
+
+Once a crucial decision is made, you ought to log it down at docs/decisions.md. If a new decision
+updates, improves or conflicts upon an older one, you ought to report that down as well. 
 
 ### Environment Setup
 
@@ -95,18 +99,5 @@ SSE events are plain dicts: `{"type": ..., "content": ...}`. Common event types:
 | `ANTHROPIC_AUTH_TOKEN` | Auth token for proxy |
 | `DEFAULT_MODEL` | `haiku` (default), `sonnet`, or `opus` |
 
-### Testing
 
-- `tests/test_agent_base.py` — model resolution and agent base tests
 
-```bash
-cd apps/backend
-uv run python -m pytest tests/test_agent_base.py
-```
-
-### Frontend
-
-Frontend ships as an Agent Observatory at `apps/frontend/`:
-- Prompt input bar for submitting agent tasks
-- Activity Stream with Output / Trace views for SSE events
-- Central Nexus status indicator
