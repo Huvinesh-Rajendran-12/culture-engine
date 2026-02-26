@@ -28,6 +28,10 @@ defmodule AgentHarness.Agent do
     GenServer.call(pid, {:chat, message}, :infinity)
   end
 
+  def chat_async(pid, message) do
+    GenServer.cast(pid, {:chat_async, self(), message})
+  end
+
   def get_messages(pid) do
     GenServer.call(pid, :get_messages)
   end
@@ -53,7 +57,7 @@ defmodule AgentHarness.Agent do
   @impl true
   def handle_call({:chat, user_message}, _from, state) do
     state = append_user_message(state, user_message)
-    {result, state} = run_loop(state, 0)
+    {result, state} = run_loop(state, 0, nil)
     {:reply, result, state}
   end
 
@@ -65,13 +69,20 @@ defmodule AgentHarness.Agent do
     {:reply, :ok, %{state | messages: []}}
   end
 
+  @impl true
+  def handle_cast({:chat_async, caller, user_message}, state) do
+    state = append_user_message(state, user_message)
+    {_result, state} = run_loop(state, 0, caller)
+    {:noreply, state}
+  end
+
   # --- The Agent Loop ---
 
-  defp run_loop(state, turn) when turn >= state.max_turns do
+  defp run_loop(state, turn, _caller) when turn >= state.max_turns do
     {{:error, "Max turns (#{state.max_turns}) reached"}, state}
   end
 
-  defp run_loop(state, turn) do
+  defp run_loop(state, turn, caller) do
     tools = ToolRegistry.all_definitions()
 
     case API.chat(state.messages, tools,
@@ -81,14 +92,16 @@ defmodule AgentHarness.Agent do
          ) do
       {:ok, response} ->
         state = append_assistant_message(state, response)
-        handle_response(state, response, turn)
+        handle_response(state, response, turn, caller)
 
       {:error, reason} ->
+        emit(caller, {:error, reason})
+        emit(caller, :done)
         {{:error, reason}, state}
     end
   end
 
-  defp handle_response(state, response, turn) do
+  defp handle_response(state, response, turn, caller) do
     content = Map.get(response, "content", [])
     tool_uses = Enum.filter(content, &(&1["type"] == "tool_use"))
 
@@ -99,6 +112,8 @@ defmodule AgentHarness.Agent do
         |> Enum.filter(&(&1["type"] == "text"))
         |> Enum.map_join("\n", & &1["text"])
 
+      emit(caller, {:text, text})
+      emit(caller, :done)
       {{:ok, text}, state}
     else
       # Execute each tool and collect results
@@ -109,15 +124,18 @@ defmodule AgentHarness.Agent do
           id = tool_use["id"]
 
           Logger.info("[tool_use] #{name}: #{inspect(input)}")
+          emit(caller, {:tool_use, name, input})
 
           {status, output} =
             case ToolRegistry.execute(name, input) do
               {:ok, result} ->
                 Logger.info("[tool_result] #{name}: #{String.slice(result, 0..200)}")
+                emit(caller, {:tool_result, name, result})
                 {nil, result}
 
               {:error, reason} ->
                 Logger.warning("[tool_error] #{name}: #{reason}")
+                emit(caller, {:tool_result, name, "[error] #{reason}"})
                 {"error", reason}
             end
 
@@ -132,19 +150,14 @@ defmodule AgentHarness.Agent do
 
       state = append_tool_results(state, tool_results)
 
-      # Check stop_reason — if model says "end_turn", we're done
-      if response["stop_reason"] == "end_turn" do
-        text =
-          content
-          |> Enum.filter(&(&1["type"] == "text"))
-          |> Enum.map_join("\n", & &1["text"])
-
-        {{:ok, text}, state}
-      else
-        run_loop(state, turn + 1)
-      end
+      # Always continue the loop after tool execution — the model
+      # signals completion by returning a response with no tool_use blocks.
+      run_loop(state, turn + 1, caller)
     end
   end
+
+  defp emit(nil, _event), do: :ok
+  defp emit(caller, event), do: send(caller, {:agent_event, event})
 
   # --- Message Helpers ---
 
