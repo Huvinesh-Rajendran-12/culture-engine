@@ -40,3 +40,26 @@ Each entry uses a Y-statement summary to capture the "why" concisely.
 **Consequences:**
 - The agent loop is simpler: tool execution always feeds results back.
 - The model controls termination, not the harness.
+
+---
+
+## 003 — Add Phoenix LiveView web REPL to existing agent harness app
+
+**Date:** 2026-02-26
+**Status:** Accepted
+**Area:** `apps/agent_harness`
+
+> *In the context of* wanting a browser-based REPL for the agent harness, *facing*
+> the choice between a separate Phoenix project or embedding into the existing app,
+> *we decided* to add Phoenix/LiveView as deps to the existing `agent_harness` app
+> with no Ecto, no esbuild, and no asset pipeline, *to achieve* a minimal web REPL
+> that reuses the Agent GenServer's `chat_async` + event message pattern directly
+> via LiveView's `handle_info`, *accepting* that the endpoint starts alongside the
+> CLI app (port 4000) and pre-built JS must be copied from deps.
+
+**Consequences:**
+- Each browser tab gets its own Agent GenServer, linked to the LiveView process for clean lifecycle.
+- Zero changes to existing agent code — `agent.ex`, `api.ex`, `tool.ex`, `cli.ex` unchanged.
+- Supervision tree now includes `Phoenix.PubSub` and `AgentHarnessWeb.Endpoint`.
+- CLI escript still works independently.
+- `.env` is loaded at application startup for API key resolution.
