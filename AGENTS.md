@@ -115,6 +115,7 @@ bun run dev:frontend
 - Preserve SSE message compatibility (`type` + `content` required).
 - Keep docs aligned with implementation in `src/backend/`.
 - For filesystem discovery via `run_command`, prefer `rg` (content) and `fd` (file paths).
+- Use `jj` (Jujutsu) for version control. The repo is colocated (`.jj` + `.git`), so `git` commands still work, but prefer `jj`.
 
 ---
 

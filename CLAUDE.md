@@ -24,6 +24,19 @@ bun run dev
 bun run build
 ```
 
+### Version Control
+
+This repo uses **jj (Jujutsu)** colocated with Git. Prefer `jj` commands over `git`:
+
+```bash
+jj log                       # View commit history
+jj describe -m "message"     # Set description on current commit
+jj new                       # Start a new change
+jj diff                      # Show changes in current commit
+jj git push                  # Push to remote
+jj git fetch                 # Fetch from remote
+```
+
 ### Environment Setup
 
 ```bash
