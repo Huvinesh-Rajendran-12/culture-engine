@@ -14,7 +14,7 @@ defmodule AgentHarness.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :runtime_tools],
       mod: {AgentHarness.Application, []}
     ]
   end
@@ -22,7 +22,11 @@ defmodule AgentHarness.MixProject do
   defp deps do
     [
       {:req, "~> 0.5"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:phoenix, "~> 1.7"},
+      {:phoenix_live_view, "~> 1.0"},
+      {:phoenix_html, "~> 4.1"},
+      {:bandit, "~> 1.6"}
     ]
   end
 
