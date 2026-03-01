@@ -5,7 +5,7 @@ defmodule AgentHarness.ToolRegistryTest do
 
   test "all_definitions returns tool definitions" do
     defs = ToolRegistry.all_definitions()
-    assert length(defs) == 3
+    assert length(defs) == 5
 
     names = Enum.map(defs, & &1["name"])
     assert "read_file" in names

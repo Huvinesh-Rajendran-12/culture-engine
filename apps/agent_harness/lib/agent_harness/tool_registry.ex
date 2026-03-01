@@ -4,9 +4,9 @@ defmodule AgentHarness.ToolRegistry do
   """
 
   alias AgentHarness.Tool
-  alias AgentHarness.Tools.{ReadFile, ListFiles, EditFile}
+  alias AgentHarness.Tools.{ReadFile, ListFiles, EditFile, RunCommand, SearchFiles}
 
-  @tools [ReadFile, ListFiles, EditFile]
+  @tools [ReadFile, ListFiles, EditFile, RunCommand, SearchFiles]
 
   def all_definitions do
     Enum.map(@tools, &Tool.to_api_definition/1)
