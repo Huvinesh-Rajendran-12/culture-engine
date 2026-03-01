@@ -2,68 +2,52 @@
 
 This is the agent-facing map for the `culture-engine/` monorepo.
 
-The project has been simplified to a **minimal agent runner**. The previous Mind/Drone
-architecture has been removed. When in doubt, keep changes simple and aligned with this
-minimal foundation.
+The project is a **minimal agent runner** built on Elixir/OTP. When in doubt, keep
+changes simple and aligned with this minimal foundation.
 
 ---
 
 ## 1) Monorepo Overview
 
-- `apps/backend` — Python FastAPI agent runner with SSE streaming
-- `apps/frontend` — Svelte 5 + Vite Agent Observatory UI
-- `apps/agent_harness` — Elixir experimental agent harness (side project)
-
-Root scripts (`package.json`):
-- `dev:frontend`
-- `dev:backend`
-- `build:frontend`
+- `apps/agent_harness` — Elixir/Phoenix agent runner with LiveView UI and CLI REPL
 
 ---
 
-## 2) Product Shape (Current)
+## 2) Product Shape
 
-### Backend: Agent Runner
-The backend is a minimal agent runner. The user submits a prompt and receives an SSE
-stream of events as the agent works.
+### Agent Runner
+The user submits a prompt and the agent works in a tool loop until done.
 
-Current backend endpoints:
-- `GET /health`
-- `POST /run` (SSE stream)
+Interfaces:
+- **Web UI** — Phoenix LiveView REPL at `http://localhost:4000`
+- **CLI** — Interactive terminal REPL via `AgentHarness.CLI`
 
-The `/run` endpoint accepts a `RunRequest`:
-- `prompt` (required) — the task description
-- `system_prompt` — optional system prompt override
-- `team` — team name (default: `"default"`)
-- `workspace_dir` — optional workspace path
-- `allowed_tools` — optional tool allowlist
-- `max_turns` — max agent loop iterations (default: 50)
+The agent loop runs as a GenServer. Each session gets its own process with
+independent conversation history, supervised by OTP.
 
-SSE event types: `text`, `tool_use`, `tool_result`, `result`, `error`.
-
-### Frontend: Agent Observatory
-The frontend is a single-view observatory experience:
-- top bar: brand header + status chip
-- center canvas: Nexus status indicator + Activity Stream (Output / Trace)
-- bottom rail: persistent prompt bar for task submission
+### LiveView Observatory
+The LiveView REPL shows:
+- User messages, agent responses, tool calls, and tool results in real-time
+- Loading state while the agent is thinking
+- `/reset` command to clear conversation
 
 ---
 
-## 3) Backend Architecture (`apps/backend/src/backend`)
+## 3) Architecture (`apps/agent_harness/lib`)
 
 | File | Responsibility |
 |---|---|
-| `main.py` | FastAPI app — `/health` and `/run` endpoints |
-| `config.py` | Pydantic `BaseSettings` (env-based config) |
-| `agents/base.py` | `run_agent()` — Anthropic/OpenRouter agent loop, yields SSE events |
-| `agents/tools.py` | Workspace tools: `read_file`, `write_file`, `edit_file`, `run_command` |
-| `agents/types.py` | `AgentTool`, `AgentToolResult`, `AgentToolSchema`, `TextContent` |
-
-### Agent Tool Safety
-
-- All file tools resolve paths through `_resolve_path()` to prevent workspace escape
-- `run_command` runs in an isolated environment with a 30s timeout and 50 KB output cap
-- For filesystem search, prefer `rg` (content) and `fd` (file paths)
+| `agent_harness/application.ex` | OTP supervision tree (PubSub, Endpoint) |
+| `agent_harness/agent.ex` | GenServer agent loop — chat, tool execution, turn limits |
+| `agent_harness/api.ex` | HTTP client for Anthropic/OpenRouter Messages API |
+| `agent_harness/tool.ex` | `@behaviour` for agent tools |
+| `agent_harness/tool_registry.ex` | Registry mapping tool names → modules |
+| `agent_harness/cli.ex` | Interactive terminal REPL |
+| `agent_harness/tools/*.ex` | Tool implementations (read_file, list_files, edit_file) |
+| `agent_harness_web/router.ex` | Phoenix router |
+| `agent_harness_web/repl_live.ex` | LiveView REPL page |
+| `agent_harness_web/endpoint.ex` | Phoenix endpoint |
+| `agent_harness_web/layouts.ex` | Layout templates |
 
 ---
 
@@ -73,37 +57,32 @@ The frontend is a single-view observatory experience:
 2. Avoid speculative abstractions.
 3. Keep orchestration explicit; avoid hidden magic.
 4. Keep temporary workspace lifecycle automatic and bounded.
-5. SSE event contract: `type` + `content` required; additional fields are additive only.
+5. New tools implement the `AgentHarness.Tool` behaviour.
 
 ---
 
-## 5) Tooling Philosophy
+## 5) Tools
 
-Tool allowlist in `agents/tools.py` → `DEFAULT_TOOL_NAMES`:
-- `read_file`, `write_file`, `edit_file`, `run_command`
+Tool modules live in `lib/agent_harness/tools/` and implement `AgentHarness.Tool`:
+- `read_file` — read file contents
+- `list_files` — list directory entries
+- `edit_file` — search-and-replace or create files
 
-Guideline: composition/prompting first, new tools only when necessary.
+Registered in `AgentHarness.ToolRegistry`. Guideline: composition/prompting first,
+new tools only when necessary.
 
 ---
 
 ## 6) Config & Environment
 
-Backend env (`apps/backend/.env`):
-- `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY`
-- optional `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`
-- `DEFAULT_MODEL` (`haiku`, `sonnet`, or `opus`)
+Environment (`apps/agent_harness/.env`):
+- `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY` (OpenRouter takes priority)
 
-Run backend:
+Run:
 ```bash
-cd apps/backend
-uv sync
-uv run uvicorn backend.main:app --reload --port 8100
-```
-
-Run frontend:
-```bash
-bun install
-bun run dev:frontend
+cd apps/agent_harness
+mix deps.get
+mix phx.server        # Web UI at http://localhost:4000
 ```
 
 ---
@@ -111,25 +90,24 @@ bun run dev:frontend
 ## 7) Contributor Conventions
 
 - Keep tool names in snake_case.
-- Maintain workspace path safety for file tools.
-- Preserve SSE message compatibility (`type` + `content` required).
-- Keep docs aligned with implementation in `src/backend/`.
-- For filesystem discovery via `run_command`, prefer `rg` (content) and `fd` (file paths).
-- Use `jj` (Jujutsu) for version control. The repo is colocated (`.jj` + `.git`), so `git` commands still work, but prefer `jj`.
+- Tools implement the `AgentHarness.Tool` behaviour.
+- Use `jj` (Jujutsu) for version control. The repo is colocated (`.jj` + `.git`),
+  so `git` commands still work, but prefer `jj`.
 
 ---
 
 ## 8) Testing
 
 ```bash
-cd apps/backend
-uv run python -m pytest tests/test_agent_base.py
+cd apps/agent_harness
+mix test
 ```
 
 ---
 
 ## 9) Near-term Plan
 
-1. Keep the minimal agent runner stable.
-2. Add focused tests for agent loop and tool execution.
-3. Future: re-introduce persistence, memory, and multi-agent orchestration on this foundation.
+1. Add `run_command` tool (sandboxed shell execution).
+2. Improve LiveView UI (styling, markdown rendering).
+3. Add focused tests for agent loop and tool execution.
+4. Future: persistence, memory, and multi-agent orchestration.

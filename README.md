@@ -1,76 +1,56 @@
 # Culture Engine
 
-Culture Engine is a lightweight agent runner powered by the Anthropic SDK, with a spatial observatory frontend for interactive prompt-driven sessions.
+Culture Engine is a lightweight agent runner built on Elixir/OTP, with a Phoenix LiveView observatory for interactive prompt-driven sessions.
 
 ---
 
-## Monorepo Structure
+## Structure
 
 | Directory | Stack | Description |
 |---|---|---|
-| `apps/backend` | Python, FastAPI, Anthropic SDK | Agent runner API with SSE streaming |
-| `apps/frontend` | Svelte 5, Vite, TypeScript | Agent Observatory web client |
-| `apps/agent_harness` | Elixir, Req, Jason | Experimental Elixir agent harness (side project) |
+| `apps/agent_harness` | Elixir, Phoenix, LiveView | Agent runner with OTP supervision, CLI REPL, and web UI |
 
 ---
 
 ## Quick Start
 
 ### Prerequisites
-- [uv](https://docs.astral.sh/uv/)
-- [Bun](https://bun.sh/) 1.0+
+- [Elixir](https://elixir-lang.org/install.html) ~> 1.19
+- OTP 27+
 
-### 1) Run backend
+### 1) Configure
 
 ```bash
-cd apps/backend
-uv sync
+cd apps/agent_harness
 cp .env.example .env
-uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8100
+# Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY in .env
 ```
 
-### 2) Run frontend
+### 2) Run the web UI
 
 ```bash
-bun install
-bun run dev:frontend
-
-# Or from apps/frontend:
-bun run dev
+cd apps/agent_harness
+mix deps.get
+mix phx.server
 ```
 
-- Frontend: `http://localhost:5174`
-- Backend: `http://localhost:8100`
-- Swagger: `http://localhost:8100/docs`
+Open `http://localhost:4000` for the LiveView REPL.
+
+### 3) Run the CLI REPL
+
+```bash
+cd apps/agent_harness
+mix run --no-halt -e "AgentHarness.CLI.main()"
+```
 
 ---
 
-## Backend API
+## Agent Tools
 
-- `GET /health` — health check
-- `POST /run` — run an agent session (SSE stream)
-
-The `/run` endpoint accepts:
-```json
-{
-  "prompt": "Your task description",
-  "system_prompt": "",
-  "team": "default",
-  "workspace_dir": null,
-  "allowed_tools": null,
-  "max_turns": 50
-}
-```
-
-It returns a Server-Sent Events stream with event types: `text`, `tool_use`, `tool_result`, `result`, `error`.
-
-### Available Agent Tools
-
-The agent has access to workspace-sandboxed tools:
+The agent has access to workspace tools:
 - `read_file` — read a text file
-- `write_file` — write content to a file
-- `edit_file` — replace text in a file
-- `run_command` — run a shell command (30s timeout, sanitized env)
+- `list_files` — list directory contents
+- `edit_file` — replace text in a file or create new files
 
 ---
 
@@ -78,25 +58,13 @@ The agent has access to workspace-sandboxed tools:
 
 Design principle: **simplify first, extend second**.
 
-The Mind/Drone delegation architecture has been removed in favor of a minimal agent runner.
-Future iterations may re-introduce persistence, memory, and multi-agent orchestration
-on top of this simplified foundation.
-
----
-
-## Root scripts
-
-```bash
-bun run dev:frontend
-bun run dev:backend
-bun run build:frontend
-```
+The Python/Svelte stack has been retired in favor of a unified Elixir/OTP architecture.
+Future iterations will add `run_command`, persistence, memory, and multi-agent
+orchestration on top of this foundation.
 
 ---
 
 ## Documentation
 
 - Agent map: `AGENTS.md`
-- Backend details: `apps/backend/README.md`
-- Backend quickstart: `apps/backend/QUICKSTART.md`
 - Branch protection baseline: `.github/BRANCH_PROTECTION.md`

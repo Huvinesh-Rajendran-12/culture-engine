@@ -1,14 +1,16 @@
-node_modules
-dist
+# Elixir
+_build/
+deps/
+*.ez
+*.beam
+
+# Environment
 .env
-__pycache__
-.venv
-*.pyc
 
 # SQLite
 *.db
 *.db-shm
 *.db-wal
 
-# Legacy migration marker
-.migrated_to_sqlite
+# OS
+.DS_Store

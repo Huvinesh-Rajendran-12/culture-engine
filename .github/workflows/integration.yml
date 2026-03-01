@@ -12,33 +12,26 @@ permissions:
 
 jobs:
   openrouter:
-    name: mind-openrouter-integration
+    name: agent-openrouter-integration
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
       run:
-        working-directory: apps/backend
+        working-directory: apps/agent_harness
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      RUN_OPENROUTER_INTEGRATION: "1"
-      ANTHROPIC_BASE_URL: https://openrouter.ai/api/v1
-      DEFAULT_MODEL: anthropic/claude-haiku-4.5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
         with:
-          python-version: "3.11"
+          elixir-version: "1.19"
+          otp-version: "27"
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-
-      - name: Sync backend dependencies
-        run: uv sync --frozen --group dev
+      - name: Install dependencies
+        run: mix deps.get
 
       - name: Assert integration secret is configured
         run: |
@@ -47,5 +40,5 @@ jobs:
             exit 1
           fi
 
-      - name: Run agent base tests via OpenRouter
-        run: uv run python -m pytest tests/test_agent_base.py
+      - name: Run integration tests
+        run: mix test --only integration
