@@ -7,6 +7,7 @@ defmodule AgentHarness.Application do
     load_dotenv()
 
     children = [
+      AgentHarness.ToolRegistry,
       {Phoenix.PubSub, name: AgentHarness.PubSub},
       AgentHarnessWeb.Endpoint
     ]

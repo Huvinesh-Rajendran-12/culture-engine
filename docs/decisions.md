@@ -63,3 +63,27 @@ Each entry uses a Y-statement summary to capture the "why" concisely.
 - Supervision tree now includes `Phoenix.PubSub` and `AgentHarnessWeb.Endpoint`.
 - CLI escript still works independently.
 - `.env` is loaded at application startup for API key resolution.
+
+---
+
+## 004 — Dynamic self-tooling via ETS-backed ToolRegistry and create_tool meta-tool
+
+**Date:** 2026-03-02
+**Status:** Accepted
+**Area:** `apps/agent_harness`
+
+> *In the context of* wanting the agent to adapt to novel tasks by creating its own
+> tools at runtime, *facing* a compile-time `@tools` list that prevented dynamic
+> registration, *we decided* to make `ToolRegistry` a GenServer backed by ETS (seeded
+> with built-in modules on init) and add a `create_tool` meta-tool that accepts a
+> name, description, input_schema, and a shebang script, *to achieve* runtime tool
+> creation where script-based tools receive JSON input via stdin/TOOL_INPUT env var
+> and write output to stdout, *accepting* per-session scope (ETS dies with process),
+> a 10-tool cap to avoid tool-list bloat, and the same 30s/50KB sandbox as run_command.
+
+**Consequences:**
+- The agent loop (`agent.ex`) required zero changes — it already calls `ToolRegistry.all_definitions()` each turn, so new tools are visible immediately.
+- Built-in tools cannot be overridden or removed (enforced by registry).
+- Scripts are written to temp files with `0o755` permissions, cleaned up on unregister.
+- Shell/Python scripts are natural for the model to write; Elixir runtime compilation was rejected as harder to sandbox with no additional benefit.
+- `ToolRegistry` is now a supervised GenServer in the application tree.
