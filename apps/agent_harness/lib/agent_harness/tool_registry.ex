@@ -142,22 +142,22 @@ defmodule AgentHarness.ToolRegistry do
   end
 
   defp do_execute({:script, %{script_path: script_path}}, input) do
-    json_input = Jason.encode!(input)
+    json_input = Jason.encode!(input) |> String.replace(<<0>>, "")
 
     task =
       Task.async(fn ->
+        # Use printf to pipe JSON input via stdin so the script gets EOF after the data.
+        # printf '%s' avoids echo's platform-varying backslash interpretation and trailing newline.
+        # TOOL_INPUT env var is also set as a fallback.
+        escaped = escape_single_quotes(json_input)
+        shell_cmd = ~s(printf '%s' '#{escaped}' | TOOL_INPUT='#{escaped}' '#{escape_single_quotes(script_path)}')
+
         port =
-          Port.open({:spawn_executable, script_path}, [
+          Port.open({:spawn, shell_cmd}, [
             :binary,
             :exit_status,
-            :stderr_to_stdout,
-            {:args, []},
-            {:env, [{~c"TOOL_INPUT", String.to_charlist(json_input)}]}
+            :stderr_to_stdout
           ])
-
-        # Also send input on stdin
-        Port.command(port, json_input)
-        Port.command(port, <<>>)
 
         collect_port_output(port, "")
       end)
@@ -186,6 +186,10 @@ defmodule AgentHarness.ToolRegistry do
         Port.close(port)
         {:error, "Timed out reading script output"}
     end
+  end
+
+  defp escape_single_quotes(str) do
+    String.replace(str, "'", "'\\''")
   end
 
   defp truncate(output) when byte_size(output) > @max_output_bytes do
