@@ -1,17 +1,17 @@
 defmodule AgentHarness.BuiltinToolsTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   alias AgentHarness.ToolRegistry
 
   test "all_definitions returns tool definitions" do
     defs = ToolRegistry.all_definitions()
-    assert length(defs) == 6
-
     names = Enum.map(defs, & &1["name"])
     assert "read_file" in names
     assert "list_files" in names
     assert "edit_file" in names
     assert "create_tool" in names
+    assert "spawn_agent" in names
+    assert "list_agents" in names
 
     for def <- defs do
       assert Map.has_key?(def, "name")

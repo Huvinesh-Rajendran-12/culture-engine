@@ -4,13 +4,15 @@ defmodule AgentHarness.CLI do
   """
 
   def main(_args \\ []) do
-    IO.puts("Agent Harness v0.1.0")
-    IO.puts("Type your message and press Enter. Type 'quit' to exit.\n")
-
     {:ok, agent} =
-      AgentHarness.Agent.start_link(
+      AgentHarness.Agent.start_supervised(
         system: "You are a helpful coding assistant with access to file tools. Use them to help the user."
       )
+
+    identity = AgentHarness.Agent.get_identity(agent)
+    IO.puts("Agent Harness v0.1.0")
+    IO.puts("Mind: #{identity.name} (#{identity.id})")
+    IO.puts("Type your message and press Enter. Type 'quit' to exit.\n")
 
     loop(agent)
   end
@@ -46,25 +48,24 @@ defmodule AgentHarness.CLI do
 
   defp receive_events do
     receive do
-      {:agent_event, {:tool_use, name, input}} ->
+      {:agent_event, _id, {:tool_use, name, input}} ->
         IO.puts("\n  [tool] #{name}: #{inspect(input, pretty: true, limit: 5)}")
         receive_events()
 
-      {:agent_event, {:tool_result, name, result}} ->
+      {:agent_event, _id, {:tool_result, name, result}} ->
         truncated = String.slice(result, 0..200)
         IO.puts("  [result] #{name}: #{truncated}")
         receive_events()
 
-      {:agent_event, {:text, text}} ->
+      {:agent_event, _id, {:text, text}} ->
         IO.puts("\nagent> #{text}")
-
         receive_events()
 
-      {:agent_event, {:error, reason}} ->
+      {:agent_event, _id, {:error, reason}} ->
         IO.puts("\n[error] #{reason}")
         receive_events()
 
-      {:agent_event, :done} ->
+      {:agent_event, _id, :done} ->
         :ok
     after
       120_000 ->

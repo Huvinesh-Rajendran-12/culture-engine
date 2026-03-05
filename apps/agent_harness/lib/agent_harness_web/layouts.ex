@@ -112,6 +112,19 @@ defmodule AgentHarnessWeb.Layouts do
             font-style: italic;
           }
 
+          .tier-badge {
+            display: inline-block;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            margin-left: 8px;
+            font-weight: 400;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .tier-badge { background: #1f3a5f; color: #58a6ff; }
+          .tier-badge.drone { background: #2d1f3a; color: #d2a8ff; }
+
           .input-area {
             border-top: 1px solid #21262d;
             padding-top: 12px;

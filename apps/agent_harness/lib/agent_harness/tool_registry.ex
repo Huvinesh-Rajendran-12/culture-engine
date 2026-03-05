@@ -1,7 +1,7 @@
 defmodule AgentHarness.ToolRegistry do
   @moduledoc """
-  Dynamic registry of available tools. Built-in tools are seeded on init;
-  the agent can register additional tools at runtime via `create_tool`.
+  Registry of available tools. Built-in tools are seeded on init;
+  dynamic tools can be registered at runtime via `register/4`.
 
   Built-in tools are stored as `{name, {:module, module}}`.
   Dynamic tools are stored as `{name, {:script, definition}}` where
@@ -9,12 +9,12 @@ defmodule AgentHarness.ToolRegistry do
   """
   use GenServer
 
-  alias AgentHarness.Tool
-  alias AgentHarness.Tools.{ReadFile, ListFiles, EditFile, RunCommand, SearchFiles, CreateTool}
+  alias AgentHarness.{Tool, ScriptRunner}
+  alias AgentHarness.Tools.{ReadFile, ListFiles, EditFile, RunCommand, SearchFiles, CreateTool, SpawnAgent, ListAgents}
 
   @table :tool_registry
   @max_dynamic_tools 10
-  @builtin_modules [ReadFile, ListFiles, EditFile, RunCommand, SearchFiles, CreateTool]
+  @builtin_modules [ReadFile, ListFiles, EditFile, RunCommand, SearchFiles, CreateTool, SpawnAgent, ListAgents]
 
   # --- Public API ---
 
@@ -51,6 +51,11 @@ defmodule AgentHarness.ToolRegistry do
     :ets.tab2list(@table) |> Enum.map(fn {name, _} -> name end)
   end
 
+  @doc "Returns the list of built-in tool names."
+  def builtin_names do
+    Enum.map(@builtin_modules, & &1.name())
+  end
+
   @doc "Returns count of dynamic (non-built-in) tools."
   def dynamic_tool_count do
     :ets.tab2list(@table)
@@ -72,17 +77,14 @@ defmodule AgentHarness.ToolRegistry do
 
   @impl true
   def handle_call({:register, name, description, input_schema, script}, _from, state) do
-    builtin_names = Enum.map(@builtin_modules, & &1.name())
-
     cond do
-      name in builtin_names ->
+      name in builtin_names() ->
         {:reply, {:error, "Cannot override built-in tool: #{name}"}, state}
 
       dynamic_tool_count() >= @max_dynamic_tools ->
         {:reply, {:error, "Maximum dynamic tools (#{@max_dynamic_tools}) reached"}, state}
 
       true ->
-        # Write script to a temp file
         dir = System.tmp_dir!()
         script_path = Path.join(dir, "tool_#{name}_#{System.unique_integer([:positive])}")
         File.write!(script_path, script)
@@ -103,9 +105,7 @@ defmodule AgentHarness.ToolRegistry do
   end
 
   def handle_call({:unregister, name}, _from, state) do
-    builtin_names = Enum.map(@builtin_modules, & &1.name())
-
-    if name in builtin_names do
+    if name in builtin_names() do
       {:reply, {:error, "Cannot remove built-in tool: #{name}"}, state}
     else
       case :ets.lookup(state.table, name) do
@@ -134,67 +134,11 @@ defmodule AgentHarness.ToolRegistry do
     }
   end
 
-  @timeout_ms 30_000
-  @max_output_bytes 50_000
-
   defp do_execute({:module, module}, input) do
     module.execute(input)
   end
 
   defp do_execute({:script, %{script_path: script_path}}, input) do
-    json_input = Jason.encode!(input) |> String.replace(<<0>>, "")
-
-    task =
-      Task.async(fn ->
-        # Use printf to pipe JSON input via stdin so the script gets EOF after the data.
-        # printf '%s' avoids echo's platform-varying backslash interpretation and trailing newline.
-        # TOOL_INPUT env var is also set as a fallback.
-        escaped = escape_single_quotes(json_input)
-        shell_cmd = ~s(printf '%s' '#{escaped}' | TOOL_INPUT='#{escaped}' '#{escape_single_quotes(script_path)}')
-
-        port =
-          Port.open({:spawn, shell_cmd}, [
-            :binary,
-            :exit_status,
-            :stderr_to_stdout
-          ])
-
-        collect_port_output(port, "")
-      end)
-
-    case Task.yield(task, @timeout_ms) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {:ok, output}} -> {:ok, truncate(output)}
-      {:ok, {:error, reason}} -> {:error, reason}
-      nil -> {:error, "Tool script timed out after #{div(@timeout_ms, 1000)} seconds"}
-    end
-  rescue
-    e -> {:error, "Tool script failed: #{Exception.message(e)}"}
+    ScriptRunner.run(script_path, input)
   end
-
-  defp collect_port_output(port, acc) do
-    receive do
-      {^port, {:data, data}} ->
-        collect_port_output(port, acc <> data)
-
-      {^port, {:exit_status, 0}} ->
-        {:ok, acc}
-
-      {^port, {:exit_status, code}} ->
-        {:error, "Script exited with code #{code}: #{acc}"}
-    after
-      @timeout_ms ->
-        Port.close(port)
-        {:error, "Timed out reading script output"}
-    end
-  end
-
-  defp escape_single_quotes(str) do
-    String.replace(str, "'", "'\\''")
-  end
-
-  defp truncate(output) when byte_size(output) > @max_output_bytes do
-    binary_part(output, 0, @max_output_bytes) <> "\n... (output truncated)"
-  end
-
-  defp truncate(output), do: output
 end

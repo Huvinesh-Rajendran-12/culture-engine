@@ -6,14 +6,14 @@ defmodule AgentHarness.Tools.CreateToolTest do
 
   setup do
     for name <- ToolRegistry.tool_names(),
-        name not in ~w(read_file list_files edit_file run_command search_files create_tool) do
+        name not in ToolRegistry.builtin_names() do
       ToolRegistry.unregister(name)
     end
 
     :ok
   end
 
-  test "creates a working tool via execute" do
+  test "validate accepts valid input" do
     input = %{
       "name" => "greet",
       "description" => "Says hello",
@@ -27,12 +27,7 @@ defmodule AgentHarness.Tools.CreateToolTest do
       "script" => "#!/bin/sh\necho \"hello\""
     }
 
-    assert {:ok, msg} = CreateTool.execute(input)
-    assert String.contains?(msg, "greet")
-    assert String.contains?(msg, "created successfully")
-
-    # Verify it's usable
-    assert {:ok, "hello\n"} = ToolRegistry.execute("greet", %{"name" => "world"})
+    assert :ok = CreateTool.validate(input)
   end
 
   test "rejects name with spaces" do
@@ -43,7 +38,7 @@ defmodule AgentHarness.Tools.CreateToolTest do
       "script" => "#!/bin/sh\necho ok"
     }
 
-    assert {:error, msg} = CreateTool.execute(input)
+    assert {:error, msg} = CreateTool.validate(input)
     assert String.contains?(msg, "Invalid tool name")
   end
 
@@ -55,7 +50,7 @@ defmodule AgentHarness.Tools.CreateToolTest do
       "script" => "echo ok"
     }
 
-    assert {:error, msg} = CreateTool.execute(input)
+    assert {:error, msg} = CreateTool.validate(input)
     assert String.contains?(msg, "shebang")
   end
 
@@ -67,11 +62,11 @@ defmodule AgentHarness.Tools.CreateToolTest do
       "script" => "#!/bin/sh\necho ok"
     }
 
-    assert {:error, msg} = CreateTool.execute(input)
+    assert {:error, msg} = CreateTool.validate(input)
     assert String.contains?(msg, "type")
   end
 
   test "rejects missing fields" do
-    assert {:error, _} = CreateTool.execute(%{"name" => "partial"})
+    assert {:error, _} = CreateTool.validate(%{"name" => "partial"})
   end
 end

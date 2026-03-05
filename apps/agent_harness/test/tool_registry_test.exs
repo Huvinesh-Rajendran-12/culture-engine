@@ -6,7 +6,7 @@ defmodule AgentHarness.ToolRegistryTest do
   setup do
     # Clean up any dynamic tools between tests
     for name <- ToolRegistry.tool_names(),
-        name not in ~w(read_file list_files edit_file run_command search_files create_tool) do
+        name not in ToolRegistry.builtin_names() do
       ToolRegistry.unregister(name)
     end
 
@@ -24,6 +24,8 @@ defmodule AgentHarness.ToolRegistryTest do
       assert "run_command" in names
       assert "search_files" in names
       assert "create_tool" in names
+      assert "spawn_agent" in names
+      assert "list_agents" in names
     end
 
     test "execute dispatches to built-in tool module" do

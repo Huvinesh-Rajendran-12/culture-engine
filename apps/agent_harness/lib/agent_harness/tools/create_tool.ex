@@ -2,13 +2,11 @@ defmodule AgentHarness.Tools.CreateTool do
   @moduledoc """
   Meta-tool that lets the agent define new tools at runtime.
 
-  The agent provides a name, description, input_schema, and a script.
-  The script receives tool input as JSON via both stdin and the TOOL_INPUT
-  environment variable. It should write its result to stdout.
+  This module provides the tool definition (name, description, input_schema)
+  and input validation. Execution is handled by the Agent loop, which routes
+  create_tool calls to the agent's per-agent ToolSet.
   """
   @behaviour AgentHarness.Tool
-
-  alias AgentHarness.ToolRegistry
 
   @impl true
   def name, do: "create_tool"
@@ -53,55 +51,32 @@ defmodule AgentHarness.Tools.CreateTool do
     }
   end
 
-  @impl true
-  def execute(%{
-        "name" => name,
-        "description" => description,
-        "input_schema" => input_schema,
-        "script" => script
-      }) do
-    with :ok <- validate_name(name),
-         :ok <- validate_script(script),
-         :ok <- validate_schema(input_schema) do
-      case ToolRegistry.register(name, description, input_schema, script) do
-        {:ok, ^name} ->
-          {:ok, "Tool '#{name}' created successfully. It is now available for use."}
+  @doc "Validates create_tool input. Returns `:ok` or `{:error, reason}`."
+  def validate(%{"name" => name, "description" => _, "input_schema" => schema, "script" => script})
+      when is_binary(name) and is_binary(script) and is_map(schema) do
+    cond do
+      not Regex.match?(~r/^[a-z][a-z0-9_]{0,49}$/, name) ->
+        {:error,
+         "Invalid tool name '#{name}'. Must be lowercase, start with a letter, " <>
+           "and contain only letters, digits, and underscores (max 50 chars)."}
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+      not String.starts_with?(script, "#!") ->
+        {:error, "Script must start with a shebang line (e.g. #!/usr/bin/env python3)"}
+
+      not Map.has_key?(schema, "type") or not Map.has_key?(schema, "properties") ->
+        {:error, "input_schema must have 'type' and 'properties' fields"}
+
+      true ->
+        :ok
     end
   end
 
-  def execute(_input) do
+  def validate(_input) do
     {:error, "Missing required fields: name, description, input_schema, script"}
   end
 
-  defp validate_name(name) do
-    if Regex.match?(~r/^[a-z][a-z0-9_]{0,49}$/, name) do
-      :ok
-    else
-      {:error,
-       "Invalid tool name '#{name}'. Must be lowercase, start with a letter, " <>
-         "and contain only letters, digits, and underscores (max 50 chars)."}
-    end
+  @impl true
+  def execute(_input) do
+    {:error, "create_tool must be executed within an agent context"}
   end
-
-  defp validate_script(script) do
-    if String.starts_with?(script, "#!") do
-      :ok
-    else
-      {:error, "Script must start with a shebang line (e.g. #!/usr/bin/env python3)"}
-    end
-  end
-
-  defp validate_schema(schema) when is_map(schema) do
-    if Map.has_key?(schema, "type") and Map.has_key?(schema, "properties") do
-      :ok
-    else
-      {:error, "input_schema must have 'type' and 'properties' fields"}
-    end
-  end
-
-  defp validate_schema(_), do: {:error, "input_schema must be a JSON object"}
 end

@@ -7,6 +7,8 @@ defmodule AgentHarness.Application do
     load_dotenv()
 
     children = [
+      {Registry, keys: :unique, name: AgentHarness.AgentRegistry},
+      {DynamicSupervisor, name: AgentHarness.AgentSupervisor, strategy: :one_for_one},
       AgentHarness.ToolRegistry,
       {Phoenix.PubSub, name: AgentHarness.PubSub},
       AgentHarnessWeb.Endpoint

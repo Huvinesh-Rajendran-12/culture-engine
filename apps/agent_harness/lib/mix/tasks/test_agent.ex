@@ -15,10 +15,12 @@ defmodule Mix.Tasks.TestAgent do
     IO.puts("Starting agent...")
 
     {:ok, agent} =
-      AgentHarness.Agent.start_link(
+      AgentHarness.Agent.start_supervised(
         system: "You are a helpful coding assistant with access to file tools. Use them to help the user."
       )
 
+    identity = AgentHarness.Agent.get_identity(agent)
+    IO.puts("Mind: #{identity.name} (#{identity.id})")
     IO.puts("Sending: #{message}\n")
     AgentHarness.Agent.chat_async(agent, message)
     receive_events()
@@ -28,24 +30,24 @@ defmodule Mix.Tasks.TestAgent do
 
   defp receive_events do
     receive do
-      {:agent_event, {:text, text}} ->
+      {:agent_event, _id, {:text, text}} ->
         IO.puts("agent> #{text}")
         receive_events()
 
-      {:agent_event, {:tool_use, name, input}} ->
+      {:agent_event, _id, {:tool_use, name, input}} ->
         IO.puts("  [tool] #{name}: #{inspect(input, pretty: true, limit: 5)}")
         receive_events()
 
-      {:agent_event, {:tool_result, name, result}} ->
+      {:agent_event, _id, {:tool_result, name, result}} ->
         truncated = String.slice(result, 0..200)
         IO.puts("  [result] #{name}: #{truncated}")
         receive_events()
 
-      {:agent_event, {:error, reason}} ->
+      {:agent_event, _id, {:error, reason}} ->
         IO.puts("[error] #{reason}")
         receive_events()
 
-      {:agent_event, :done} ->
+      {:agent_event, _id, :done} ->
         :ok
     after
       120_000 ->

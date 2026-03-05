@@ -87,3 +87,70 @@ Each entry uses a Y-statement summary to capture the "why" concisely.
 - Scripts are written to temp files with `0o755` permissions, cleaned up on unregister.
 - Shell/Python scripts are natural for the model to write; Elixir runtime compilation was rejected as harder to sandbox with no additional benefit.
 - `ToolRegistry` is now a supervised GenServer in the application tree.
+
+---
+
+## 005 — Agent identity via struct fields and Elixir Registry
+
+**Date:** 2026-03-05
+**Status:** Accepted
+**Area:** `apps/agent_harness`
+
+> *In the context of* wanting Culture-inspired multi-agent orchestration, *facing*
+> agents with no identity, no supervision, and no discoverability, *we decided*
+> to add `id` (short UUID), `name` (Culture-style ship name), `tier` (:mind/:drone),
+> and `parent` (PID) to the Agent struct, with process lookup via Elixir's built-in
+> Registry (`AgentHarness.AgentRegistry`), *to achieve* named, discoverable agents
+> that can be supervised and observed, *accepting* that the Registry is in-memory
+> only and agent names are randomly generated (not persisted).
+
+**Consequences:**
+- Each agent registers with `{:via, Registry, {AgentHarness.AgentRegistry, id}}` on start.
+- `Agent.list_agents/0` queries the Registry for all running agents.
+- Events changed from 2-tuple `{:agent_event, event}` to 3-tuple `{:agent_event, agent_id, event}`.
+- Agent lifecycle events broadcast on PubSub topics `"agent:<id>"` and `"agents"`.
+- `DynamicSupervisor` owns all agent processes; LiveView uses `Process.monitor` instead of `Process.link`.
+
+---
+
+## 006 — Synchronous drone pattern for multi-agent spawning
+
+**Date:** 2026-03-05
+**Status:** Accepted
+**Area:** `apps/agent_harness`
+
+> *In the context of* wanting Mind-level agents to delegate subtasks, *facing*
+> the complexity of async inter-agent messaging, *we decided* to implement drones
+> as synchronous tool calls — the parent blocks while the drone runs `chat/2`,
+> then receives the drone's final text as the tool result, *to achieve* multi-agent
+> delegation with zero async coordination, *accepting* that the parent is blocked
+> during drone execution and async messaging is deferred to a future phase.
+
+**Consequences:**
+- `spawn_agent` is a tool like any other — the model calls it, waits, gets a result.
+- Drones are filtered from `spawn_agent` and `create_tool` tools to prevent recursive spawning.
+- Drones terminate after their task completes.
+- `max_turns` defaults to 5 for drones (vs 20 for minds) to bound subtask scope.
+
+---
+
+## 007 — Per-agent tool isolation via ToolSet with separate ETS tables
+
+**Date:** 2026-03-05
+**Status:** Accepted (supersedes dynamic tool aspects of D004)
+**Area:** `apps/agent_harness`
+
+> *In the context of* agents creating dynamic tools at runtime, *facing* a global
+> singleton ToolRegistry where one agent's dynamic tools leak to all others, *we
+> decided* to introduce `ToolSet` — each agent gets its own ETS table for dynamic
+> tools, while built-in tool definitions stay in the singleton ToolRegistry, *to
+> achieve* per-agent tool isolation where a drone's custom tools don't pollute
+> the parent's namespace, *accepting* that built-in tools remain global (which is
+> correct — they're stateless) and `create_tool` is now intercepted in the agent
+> loop rather than dispatched through ToolRegistry.
+
+**Consequences:**
+- `ToolSet.new(agent_id)` creates a per-agent ETS table, destroyed in `terminate/2`.
+- Agent loop calls `ToolSet.all_definitions(table)` which merges built-in + agent-local tools.
+- `ToolRegistry` becomes effectively read-only at runtime — only serves built-in definitions.
+- Dynamic tool script cleanup happens per-agent in `ToolSet.destroy/1`.

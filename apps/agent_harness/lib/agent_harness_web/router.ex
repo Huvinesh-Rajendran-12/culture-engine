@@ -16,5 +16,6 @@ defmodule AgentHarnessWeb.Router do
     pipe_through :browser
 
     live "/", ReplLive
+    live "/observatory", ObservatoryLive
   end
 end
