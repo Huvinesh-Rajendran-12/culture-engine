@@ -4,9 +4,21 @@ defmodule AgentHarness.ToolSetTest do
   alias AgentHarness.ToolSet
 
   setup do
-    table = ToolSet.new("test_#{System.unique_integer([:positive])}")
+    table = ToolSet.new()
     on_exit(fn -> ToolSet.destroy(table) end)
     %{table: table}
+  end
+
+  test "new creates an anonymous ETS table" do
+    table = ToolSet.new()
+
+    try do
+      assert is_reference(table)
+      refute is_atom(table)
+      refute :ets.info(table, :named_table)
+    after
+      ToolSet.destroy(table)
+    end
   end
 
   test "all_definitions includes built-in tools", %{table: table} do

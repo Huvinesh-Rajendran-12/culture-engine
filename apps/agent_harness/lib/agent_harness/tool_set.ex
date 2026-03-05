@@ -9,10 +9,9 @@ defmodule AgentHarness.ToolSet do
 
   @max_dynamic_tools 10
 
-  @doc "Creates a new per-agent ETS table for dynamic tools."
-  def new(agent_id) do
-    table_name = :"tool_set_#{agent_id}"
-    :ets.new(table_name, [:set, :public, read_concurrency: true])
+  @doc "Creates a new anonymous ETS table for an agent's dynamic tools."
+  def new do
+    :ets.new(:tool_set, [:set, :public, read_concurrency: true])
   end
 
   @doc "Returns all tool definitions: built-in (from ToolRegistry) + agent's dynamic tools."

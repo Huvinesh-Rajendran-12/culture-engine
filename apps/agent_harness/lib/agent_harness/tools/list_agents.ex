@@ -23,14 +23,25 @@ defmodule AgentHarness.Tools.ListAgents do
 
   @impl true
   def execute(_input) do
+    listed_agents = AgentHarness.Agent.list_agents()
+
+    parent_ids =
+      Map.new(listed_agents, fn {id, pid, _meta} -> {pid, id} end)
+
     agents =
-      AgentHarness.Agent.list_agents()
+      listed_agents
       |> Enum.map(fn {id, _pid, meta} ->
+        parent =
+          case meta[:parent] do
+            pid when is_pid(pid) -> Map.get(parent_ids, pid, inspect(pid))
+            other -> other
+          end
+
         %{
           id: id,
           name: meta[:name] || "unknown",
-          tier: meta[:tier] || :unknown,
-          parent: meta[:parent]
+          tier: to_string(meta[:tier] || :unknown),
+          parent: parent
         }
       end)
 

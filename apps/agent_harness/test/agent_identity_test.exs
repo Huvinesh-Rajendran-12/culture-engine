@@ -63,4 +63,17 @@ defmodule AgentHarness.AgentIdentityTest do
 
     DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, pid)
   end
+
+  test "synchronous chat broadcasts events to PubSub" do
+    {:ok, pid} = Agent.start_supervised(system: "test", max_turns: 0)
+    identity = Agent.get_identity(pid)
+    Phoenix.PubSub.subscribe(AgentHarness.PubSub, "agent:#{identity.id}")
+
+    assert {:error, "Max turns (0) reached"} = Agent.chat(pid, "hello")
+
+    assert_receive {:agent_event, {:error, "Max turns (0) reached"}}, 5000
+    assert_receive {:agent_event, :done}, 5000
+
+    DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, pid)
+  end
 end

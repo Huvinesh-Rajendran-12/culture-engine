@@ -82,7 +82,7 @@ defmodule AgentHarness.Agent do
       %{name: agent_name, tier: tier, parent: parent}
     end)
 
-    tool_table = ToolSet.new(id)
+    tool_table = ToolSet.new()
 
     state = %__MODULE__{
       id: id,
@@ -280,10 +280,8 @@ defmodule AgentHarness.Agent do
 
   defp tools_for_tier(tools, _mind), do: tools
 
-  defp emit(_state, nil, _event), do: :ok
-
   defp emit(state, caller, event) do
-    send(caller, {:agent_event, state.id, event})
+    if caller, do: send(caller, {:agent_event, state.id, event})
     Phoenix.PubSub.broadcast(AgentHarness.PubSub, "agent:#{state.id}", {:agent_event, event})
   end
 
