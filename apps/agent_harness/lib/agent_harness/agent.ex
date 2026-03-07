@@ -15,6 +15,8 @@ defmodule AgentHarness.Agent do
   alias AgentHarness.{API, Names, ToolSet}
   alias AgentHarness.Tools.CreateTool
 
+  @max_depth 3
+
   defstruct [
     :id,
     :name,
@@ -24,6 +26,7 @@ defmodule AgentHarness.Agent do
     :system,
     :tool_table,
     tier: :mind,
+    depth: 0,
     messages: [],
     max_turns: 20,
     pending_drones: %{}
@@ -90,6 +93,7 @@ defmodule AgentHarness.Agent do
       name: agent_name,
       parent: parent,
       tier: tier,
+      depth: opts[:depth] || 0,
       api_key: opts[:api_key] || System.get_env("ANTHROPIC_API_KEY"),
       model: opts[:model] || "claude-sonnet-4-20250514",
       system: opts[:system],
@@ -177,7 +181,7 @@ defmodule AgentHarness.Agent do
   end
 
   defp run_loop(state, turn, caller) do
-    tools = tools_for_tier(ToolSet.all_definitions(state.tool_table), state.tier)
+    tools = tools_for_agent(ToolSet.all_definitions(state.tool_table), state)
 
     case API.chat(state.messages, tools,
            api_key: state.api_key,
@@ -289,6 +293,7 @@ defmodule AgentHarness.Agent do
       case start_supervised(
              parent: self(),
              tier: :drone,
+             depth: state.depth + 1,
              agent_name: drone_name,
              system: system,
              max_turns: max_turns,
@@ -320,12 +325,16 @@ defmodule AgentHarness.Agent do
     end
   end
 
-  # Drones cannot spawn agents or create tools
-  defp tools_for_tier(tools, :drone) do
+  # Agents at max depth cannot spawn further agents; create_tool always requires mind tier
+  defp tools_for_agent(tools, %{depth: depth}) when depth >= @max_depth do
     Enum.reject(tools, &(&1["name"] in ~w(spawn_agent create_tool)))
   end
 
-  defp tools_for_tier(tools, _mind), do: tools
+  defp tools_for_agent(tools, %{tier: :drone}) do
+    Enum.reject(tools, &(&1["name"] == "create_tool"))
+  end
+
+  defp tools_for_agent(tools, _state), do: tools
 
   defp emit(state, caller, event) do
     if caller, do: send(caller, {:agent_event, state.id, event})

@@ -154,3 +154,27 @@ Each entry uses a Y-statement summary to capture the "why" concisely.
 - Agent loop calls `ToolSet.all_definitions(table)` which merges built-in + agent-local tools.
 - `ToolRegistry` becomes effectively read-only at runtime — only serves built-in definitions.
 - Dynamic tool script cleanup happens per-agent in `ToolSet.destroy/1`.
+
+---
+
+## 008 — Drone subagent spawning with depth-limited recursion
+
+**Date:** 2026-03-07
+**Status:** Accepted (updates D006)
+**Area:** `apps/agent_harness`
+
+> *In the context of* wanting drones to decompose their own subtasks via further
+> delegation, *facing* a blanket restriction that prevented drones from spawning
+> any subagents, *we decided* to replace the tier-based tool filter with a
+> depth-based limit (`@max_depth 3`), where each spawned drone inherits
+> `depth: parent.depth + 1` and loses `spawn_agent` only when it reaches max
+> depth, *to achieve* recursive divide-and-conquer without infinite nesting,
+> *accepting* that deep chains increase latency and token cost, and `create_tool`
+> remains restricted to minds only.
+
+**Consequences:**
+- Minds start at depth 0; drones at depth 1, sub-drones at depth 2, etc.
+- `spawn_agent` is available to any agent whose depth < `@max_depth` (3).
+- `create_tool` remains mind-only — drones at any depth cannot create tools.
+- The `tools_for_tier/2` function is replaced by `tools_for_agent/2` which checks both tier and depth.
+- Max depth is a module attribute (`@max_depth`) for easy tuning.
