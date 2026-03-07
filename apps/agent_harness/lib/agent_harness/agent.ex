@@ -25,7 +25,8 @@ defmodule AgentHarness.Agent do
     :tool_table,
     tier: :mind,
     messages: [],
-    max_turns: 20
+    max_turns: 20,
+    pending_drones: %{}
   ]
 
   # --- Public API ---
@@ -125,9 +126,39 @@ defmodule AgentHarness.Agent do
   @impl true
   def handle_cast({:chat_async, caller, user_message}, state) do
     state = append_user_message(state, user_message)
-    {_result, state} = run_loop(state, 0, caller)
+    {result, state} = run_loop(state, 0, caller)
+
+    # Notify parent when this drone completes
+    if state.parent do
+      send(state.parent, {:drone_complete, state.id, state.name, result})
+    end
+
     {:noreply, state}
   end
+
+  @impl true
+  def handle_info({:drone_complete, drone_id, drone_name, result}, state) do
+    case Map.pop(state.pending_drones, drone_id) do
+      {nil, _state} ->
+        {:noreply, state}
+
+      {%{pid: pid}, pending} ->
+        DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, pid)
+        state = %{state | pending_drones: pending}
+
+        text =
+          case result do
+            {:ok, text} -> text
+            {:error, reason} -> "[error] #{reason}"
+          end
+
+        state = append_user_message(state, "[drone_result from #{drone_name} (#{drone_id})]\n#{text}")
+        {_result, state} = run_loop(state, 0, nil)
+        {:noreply, state}
+    end
+  end
+
+  def handle_info(_msg, state), do: {:noreply, state}
 
   @impl true
   def terminate(reason, state) do
@@ -178,25 +209,25 @@ defmodule AgentHarness.Agent do
       emit(state, caller, :done)
       {{:ok, text}, state}
     else
-      tool_results =
-        Enum.map(tool_uses, fn tool_use ->
+      {tool_results, state} =
+        Enum.map_reduce(tool_uses, state, fn tool_use, acc_state ->
           name = tool_use["name"]
           input = tool_use["input"]
           id = tool_use["id"]
 
           Logger.info("[tool_use] #{name}: #{inspect(input)}")
-          emit(state, caller, {:tool_use, name, input})
+          emit(acc_state, caller, {:tool_use, name, input})
 
-          {status, output} = execute_tool(state, name, input)
+          {status, output, acc_state} = execute_tool(acc_state, name, input)
 
           case status do
             :ok ->
               Logger.info("[tool_result] #{name}: #{String.slice(output, 0..200)}")
-              emit(state, caller, {:tool_result, name, output})
+              emit(acc_state, caller, {:tool_result, name, output})
 
             :error ->
               Logger.warning("[tool_error] #{name}: #{output}")
-              emit(state, caller, {:tool_result, name, "[error] #{output}"})
+              emit(acc_state, caller, {:tool_result, name, "[error] #{output}"})
           end
 
           result = %{
@@ -205,7 +236,8 @@ defmodule AgentHarness.Agent do
             "content" => output
           }
 
-          if status == :error, do: Map.put(result, "is_error", true), else: result
+          result = if status == :error, do: Map.put(result, "is_error", true), else: result
+          {result, acc_state}
         end)
 
       state = append_tool_results(state, tool_results)
@@ -214,27 +246,34 @@ defmodule AgentHarness.Agent do
   end
 
   defp execute_tool(state, "spawn_agent", input) do
-    execute_spawn_agent(state, input)
-  end
-
-  defp execute_tool(state, "create_tool", input) do
-    case CreateTool.validate(input) do
-      :ok ->
-        ToolSet.register(
-          state.tool_table,
-          input["name"],
-          input["description"],
-          input["input_schema"],
-          input["script"]
-        )
-
-      {:error, reason} ->
-        {:error, reason}
+    case execute_spawn_agent(state, input) do
+      {:ok, output, new_state} -> {:ok, output, new_state}
+      {status, output} -> {status, output, state}
     end
   end
 
+  defp execute_tool(state, "create_tool", input) do
+    result =
+      case CreateTool.validate(input) do
+        :ok ->
+          ToolSet.register(
+            state.tool_table,
+            input["name"],
+            input["description"],
+            input["input_schema"],
+            input["script"]
+          )
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+
+    {elem(result, 0), elem(result, 1), state}
+  end
+
   defp execute_tool(state, name, input) do
-    ToolSet.execute(state.tool_table, name, input)
+    {status, output} = ToolSet.execute(state.tool_table, name, input)
+    {status, output, state}
   end
 
   defp execute_spawn_agent(state, input) do
@@ -242,6 +281,7 @@ defmodule AgentHarness.Agent do
     drone_name = input["name"]
     system = input["system"] || state.system
     max_turns = input["max_turns"] || 5
+    async = input["async"] == true
 
     if task == "" do
       {:error, "spawn_agent requires a 'task' field"}
@@ -256,15 +296,22 @@ defmodule AgentHarness.Agent do
              model: state.model
            ) do
         {:ok, drone_pid} ->
-          case chat(drone_pid, task) do
-            {:ok, result} ->
-              # Drone is done, stop it
-              DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
-              {:ok, result}
+          if async do
+            %{id: drone_id, name: actual_name} = get_identity(drone_pid)
+            chat_async(drone_pid, task)
+            pending = Map.put(state.pending_drones, drone_id, %{name: actual_name, pid: drone_pid})
+            state = %{state | pending_drones: pending}
+            {:ok, "Drone '#{actual_name}' (#{drone_id}) dispatched asynchronously. It will report back when done.", state}
+          else
+            case chat(drone_pid, task) do
+              {:ok, result} ->
+                DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
+                {:ok, result}
 
-            {:error, reason} ->
-              DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
-              {:error, "Drone failed: #{reason}"}
+              {:error, reason} ->
+                DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
+                {:error, "Drone failed: #{reason}"}
+            end
           end
 
         {:error, reason} ->

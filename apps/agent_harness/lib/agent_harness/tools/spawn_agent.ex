@@ -12,8 +12,9 @@ defmodule AgentHarness.Tools.SpawnAgent do
 
   @impl true
   def description do
-    "Spawn a drone agent to handle a subtask. The drone runs synchronously — " <>
-      "you wait for its result like any other tool call. The drone has access to " <>
+    "Spawn a drone agent to handle a subtask. By default the drone runs synchronously — " <>
+      "you wait for its result like any other tool call. Set async: true to dispatch " <>
+      "the drone in the background; it will report back when done. The drone has access to " <>
       "the same file tools but cannot spawn further agents or create tools. " <>
       "Use this to delegate focused subtasks (e.g., 'read and summarize file X', " <>
       "'search for all TODO comments')."
@@ -39,6 +40,12 @@ defmodule AgentHarness.Tools.SpawnAgent do
         "max_turns" => %{
           "type" => "integer",
           "description" => "Max tool-use turns for the drone (default: 5)."
+        },
+        "async" => %{
+          "type" => "boolean",
+          "description" =>
+            "If true, the drone runs asynchronously and reports back when done. " <>
+              "The mind continues immediately without waiting. Default: false."
         }
       },
       "required" => ["task"]
