@@ -35,10 +35,6 @@ defmodule AgentHarness.Tools.SpawnAgent do
           "type" => "string",
           "description" => "Optional Culture-style name for the drone. Auto-generated if omitted."
         },
-        "system" => %{
-          "type" => "string",
-          "description" => "Optional system prompt override for the drone."
-        },
         "max_turns" => %{
           "type" => "integer",
           "description" => "Max tool-use turns for the drone (default: 5)."
