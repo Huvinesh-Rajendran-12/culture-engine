@@ -6,7 +6,7 @@ defmodule AgentHarness.CLI do
   def main(_args \\ []) do
     {:ok, agent} =
       AgentHarness.Agent.start_supervised(
-        system: "You are a helpful coding assistant with access to file tools. Use them to help the user."
+        system: AgentHarness.Prompts.default(:mind)
       )
 
     identity = AgentHarness.Agent.get_identity(agent)

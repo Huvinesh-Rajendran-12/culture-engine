@@ -1,11 +1,9 @@
 defmodule AgentHarnessWeb.ReplLive do
   use Phoenix.LiveView
 
-  @system_prompt "You are a helpful coding assistant with access to file tools. Use them to help the user."
-
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, agent} = AgentHarness.Agent.start_supervised(system: @system_prompt)
+    {:ok, agent} = AgentHarness.Agent.start_supervised(system: AgentHarness.Prompts.default(:mind))
     _ref = Process.monitor(agent)
     identity = AgentHarness.Agent.get_identity(agent)
 
