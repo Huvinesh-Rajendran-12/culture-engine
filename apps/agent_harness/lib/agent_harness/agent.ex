@@ -239,7 +239,7 @@ defmodule AgentHarness.Agent do
           result = %{
             "type" => "tool_result",
             "tool_use_id" => id,
-            "content" => output
+            "content" => String.scrub(output)
           }
 
           result = if status == :error, do: Map.put(result, "is_error", true), else: result
@@ -312,18 +312,13 @@ defmodule AgentHarness.Agent do
           else
             try do
               case chat(drone_pid, task) do
-                {:ok, result} ->
-                  DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
-                  {:ok, result}
-
-                {:error, reason} ->
-                  DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
-                  {:error, "Drone failed: #{reason}"}
+                {:ok, result} -> {:ok, result}
+                {:error, reason} -> {:error, "Drone failed: #{inspect(reason)}"}
               end
             catch
-              :exit, reason ->
-                DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
-                {:error, "Drone crashed: #{inspect(reason)}"}
+              kind, reason -> {:error, "Drone crashed: #{inspect({kind, reason})}"}
+            after
+              DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
             end
           end
 

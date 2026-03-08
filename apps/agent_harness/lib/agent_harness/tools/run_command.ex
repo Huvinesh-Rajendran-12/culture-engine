@@ -48,10 +48,10 @@ defmodule AgentHarness.Tools.RunCommand do
 
     case Task.yield(task, @timeout_ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, {output, 0}} ->
-        {:ok, output |> truncate_output() |> AgentHarness.Sanitize.to_valid_utf8()}
+        {:ok, truncate_output(output)}
 
       {:ok, {output, code}} ->
-        {:ok, "Exit code #{code}:\n#{output}" |> truncate_output() |> AgentHarness.Sanitize.to_valid_utf8()}
+        {:ok, truncate_output("Exit code #{code}:\n#{output}")}
 
       nil ->
         {:error, "Command timed out after #{div(@timeout_ms, 1000)} seconds"}
