@@ -15,7 +15,7 @@ defmodule AgentHarness.ScriptRunner do
       Task.async(fn ->
         escaped = escape_single_quotes(json_input)
         escaped_path = escape_single_quotes(script_path)
-        shell_cmd = ~s(printf '%s' '#{escaped}' | TOOL_INPUT='#{escaped}' '#{escaped_path}')
+        shell_cmd = ~s(TOOL_INPUT='#{escaped}' '#{escaped_path}' </dev/null)
 
         port =
           Port.open({:spawn, shell_cmd}, [
