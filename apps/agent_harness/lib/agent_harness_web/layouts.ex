@@ -76,7 +76,7 @@ defmodule AgentHarnessWeb.Layouts do
             border-left: 3px solid #8b5cf6;
             font-size: 13px;
           }
-          .message.tool_use::before {
+          .message.tool_use::before, .drone-event.tool_use::before {
             content: "[tool] ";
             color: #bc8cff;
             font-weight: 600;
@@ -90,7 +90,7 @@ defmodule AgentHarnessWeb.Layouts do
             max-height: 200px;
             overflow-y: auto;
           }
-          .message.tool_result::before {
+          .message.tool_result::before, .drone-event.tool_result::before {
             content: "[result] ";
             color: #58a6ff;
             font-weight: 600;
@@ -101,7 +101,7 @@ defmodule AgentHarnessWeb.Layouts do
             background: #1a0f0f;
             border-left: 3px solid #f85149;
           }
-          .message.error::before {
+          .message.error::before, .drone-event.error::before {
             content: "[error] ";
             color: #f85149;
             font-weight: 600;
@@ -309,43 +309,22 @@ defmodule AgentHarnessWeb.Layouts do
             word-break: break-word;
           }
 
-          .drone-event.tool_use {
-            color: #d2a8ff;
-          }
-          .drone-event.tool_use::before {
-            content: "[tool] ";
-            color: #bc8cff;
-            font-weight: 600;
-          }
+          .drone-event.tool_use { color: #d2a8ff; }
 
           .drone-event.tool_result {
             color: #a5d6ff;
             max-height: 120px;
             overflow-y: auto;
           }
-          .drone-event.tool_result::before {
-            content: "[result] ";
-            color: #58a6ff;
-            font-weight: 600;
-          }
 
-          .drone-event.text {
-            color: #7ee787;
-          }
+          .drone-event.text { color: #7ee787; }
           .drone-event.text::before {
             content: "drone> ";
             color: #3fb950;
             font-weight: 600;
           }
 
-          .drone-event.error {
-            color: #ffa198;
-          }
-          .drone-event.error::before {
-            content: "[error] ";
-            color: #f85149;
-            font-weight: 600;
-          }
+          .drone-event.error { color: #ffa198; }
         </style>
       </head>
       <body>

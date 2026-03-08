@@ -1,6 +1,10 @@
 defmodule AgentHarnessWeb.ReplLive do
   use Phoenix.LiveView
 
+  alias AgentHarnessWeb.EventFormatter
+
+  @max_drone_events 200
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok, agent} = AgentHarness.Agent.start_supervised(system: AgentHarness.Prompts.default(:mind))
@@ -14,7 +18,6 @@ defmodule AgentHarnessWeb.ReplLive do
     {:ok,
      assign(socket,
        agent: agent,
-       agent_id: identity.id,
        agent_name: identity.name,
        messages: [],
        loading: false,
@@ -54,21 +57,14 @@ defmodule AgentHarnessWeb.ReplLive do
   end
 
   def handle_event("toggle_drone", %{"id" => drone_id}, socket) do
-    case Map.get(socket.assigns.drones, drone_id) do
-      nil ->
-        {:noreply, socket}
-
-      drone ->
-        drone = %{drone | collapsed: !drone.collapsed}
-        {:noreply, assign(socket, drones: Map.put(socket.assigns.drones, drone_id, drone))}
-    end
+    {:noreply, update_drone(socket, drone_id, &%{&1 | collapsed: !&1.collapsed})}
   end
 
   # --- Lifecycle events from "agents" global topic ---
 
   @impl true
   def handle_info({drone_id, {:agent_started, %{tier: :drone, parent: parent} = info}}, socket) do
-    if parent == socket.assigns.agent do
+    if parent == socket.assigns.agent and not is_map_key(socket.assigns.drones, drone_id) do
       Phoenix.PubSub.subscribe(AgentHarness.PubSub, "agent:#{drone_id}")
 
       task = if socket.assigns.pending_spawn, do: socket.assigns.pending_spawn.task, else: ""
@@ -93,16 +89,13 @@ defmodule AgentHarnessWeb.ReplLive do
 
   def handle_info({drone_id, {:agent_stopped, _info}}, socket)
       when is_map_key(socket.assigns.drones, drone_id) do
-    drone = %{socket.assigns.drones[drone_id] | status: :complete, collapsed: true}
-    {:noreply, assign(socket, drones: Map.put(socket.assigns.drones, drone_id, drone))}
+    {:noreply, update_drone(socket, drone_id, &%{&1 | status: :complete, collapsed: true})}
   end
 
   def handle_info({drone_id, {:drone_crashed, info}}, socket)
       when is_map_key(socket.assigns.drones, drone_id) do
-    drone = socket.assigns.drones[drone_id]
-    event = %{type: :error, content: "Crashed: #{info.reason}"}
-    drone = %{drone | status: :error, events: drone.events ++ [event]}
-    {:noreply, assign(socket, drones: Map.put(socket.assigns.drones, drone_id, drone))}
+    evt = %{type: :error, content: "Crashed: #{info.reason}"}
+    {:noreply, update_drone(socket, drone_id, &%{&1 | status: :error, events: cap_events(&1.events, evt)})}
   end
 
   # Ignore lifecycle events for other agents
@@ -114,36 +107,14 @@ defmodule AgentHarnessWeb.ReplLive do
 
   def handle_info({:agent_event, drone_id, event}, socket)
       when is_map_key(socket.assigns.drones, drone_id) do
-    drone = socket.assigns.drones[drone_id]
+    case event do
+      :done ->
+        {:noreply, update_drone(socket, drone_id, &%{&1 | status: :complete, collapsed: true})}
 
-    drone =
-      case event do
-        :done ->
-          %{drone | status: :complete, collapsed: true}
-
-        {:error, reason} ->
-          evt = %{type: :error, content: to_string(reason)}
-          %{drone | status: :error, events: drone.events ++ [evt]}
-
-        {:text, text} ->
-          evt = %{type: :text, content: text}
-          %{drone | events: drone.events ++ [evt]}
-
-        {:tool_use, name, input} ->
-          content = "#{name}: #{inspect(input, pretty: true, limit: 5)}"
-          evt = %{type: :tool_use, content: content}
-          %{drone | events: drone.events ++ [evt]}
-
-        {:tool_result, name, result} ->
-          truncated = String.slice(result, 0..300)
-          evt = %{type: :tool_result, content: "#{name}: #{truncated}"}
-          %{drone | events: drone.events ++ [evt]}
-
-        _ ->
-          drone
-      end
-
-    {:noreply, assign(socket, drones: Map.put(socket.assigns.drones, drone_id, drone))}
+      _ ->
+        evt = EventFormatter.format(event)
+        {:noreply, update_drone(socket, drone_id, &%{&1 | events: cap_events(&1.events, evt)})}
+    end
   end
 
   # --- Mind agent events (from direct send) ---
@@ -163,13 +134,12 @@ defmodule AgentHarnessWeb.ReplLive do
   end
 
   def handle_info({:agent_event, _agent_id, {:tool_use, name, input}}, socket) do
-    content = "#{name}: #{inspect(input, pretty: true, limit: 5)}"
+    %{content: content} = EventFormatter.format({:tool_use, name, input})
     {:noreply, append_message(socket, :tool_use, content)}
   end
 
   def handle_info({:agent_event, _agent_id, {:tool_result, name, result}}, socket) do
-    truncated = String.slice(result, 0..500)
-    content = "#{name}: #{truncated}"
+    %{content: content} = EventFormatter.format({:tool_result, name, result})
     {:noreply, append_message(socket, :tool_result, content)}
   end
 
@@ -196,6 +166,17 @@ defmodule AgentHarnessWeb.ReplLive do
   defp append_message(socket, role, content) do
     message = %{role: role, content: content}
     assign(socket, messages: socket.assigns.messages ++ [message])
+  end
+
+  defp update_drone(socket, drone_id, fun) do
+    case Map.get(socket.assigns.drones, drone_id) do
+      nil -> socket
+      drone -> assign(socket, drones: Map.put(socket.assigns.drones, drone_id, fun.(drone)))
+    end
+  end
+
+  defp cap_events(events, new_event) do
+    (events ++ [new_event]) |> Enum.take(-@max_drone_events)
   end
 
   defp active_drone_count(drones) do
