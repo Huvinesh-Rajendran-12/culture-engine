@@ -124,9 +124,17 @@ defmodule AgentHarnessWeb.ReplLive do
     {:noreply, assign(socket, pending_spawn: %{task: input["task"] || "", name: input["name"]})}
   end
 
-  # Suppress spawn_agent tool_result — shown in drone panel instead
-  def handle_info({:agent_event, _agent_id, {:tool_result, "spawn_agent", _result}}, socket) do
-    {:noreply, socket}
+  # Suppress spawn_agent tool_result when a drone panel was created — shown there instead.
+  # If pending_spawn is still set, agent_started never fired (spawn failed), so surface the error.
+  def handle_info({:agent_event, _agent_id, {:tool_result, "spawn_agent", result}}, socket) do
+    if socket.assigns.pending_spawn != nil do
+      {:noreply,
+       socket
+       |> assign(pending_spawn: nil)
+       |> append_message(:error, "Drone spawn failed: #{inspect(result, limit: 100)}")}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:agent_event, _agent_id, {:text, text}}, socket) do
