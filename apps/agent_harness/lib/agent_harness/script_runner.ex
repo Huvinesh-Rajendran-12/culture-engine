@@ -1,6 +1,6 @@
 defmodule AgentHarness.ScriptRunner do
   @moduledoc """
-  Runs a script file with JSON input via stdin and TOOL_INPUT env var.
+  Runs a script file with JSON input passed via the TOOL_INPUT environment variable.
   Shared by ToolRegistry (built-in dynamic tools) and ToolSet (per-agent dynamic tools).
   """
 
@@ -13,16 +13,12 @@ defmodule AgentHarness.ScriptRunner do
 
     task =
       Task.async(fn ->
-        escaped = escape_single_quotes(json_input)
-        escaped_path = escape_single_quotes(script_path)
-        shell_cmd = ~s(TOOL_INPUT='#{escaped}' '#{escaped_path}' </dev/null)
-
         port =
-          Port.open({:spawn_executable, "/bin/sh"}, [
+          Port.open({:spawn_executable, script_path}, [
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: ["-c", shell_cmd]
+            env: [{~c"TOOL_INPUT", String.to_charlist(json_input)}]
           ])
 
         collect_port_output(port, "")
@@ -48,8 +44,6 @@ defmodule AgentHarness.ScriptRunner do
         {:error, "Timed out reading script output"}
     end
   end
-
-  defp escape_single_quotes(str), do: String.replace(str, "'", "'\\''")
 
   defp truncate(output) when byte_size(output) > @max_output_bytes do
     binary_part(output, 0, @max_output_bytes) <> "\n... (output truncated)"
