@@ -4,24 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-### Backend
+### Agent Harness (Elixir/OTP)
 
 ```bash
-cd apps/backend
+cd apps/agent_harness
 
-uv sync                                                    # Install/update dependencies
-uv run uvicorn backend.main:app --reload --port 8100       # Start dev server
-uv run python -m pytest tests/test_agent_base.py           # Run agent tests
-```
-
-### Frontend
-
-```bash
-bun run dev:frontend      # Start Vite dev server (from repo root)
-bun run build:frontend    # Production build (from repo root)
-# Or from apps/frontend/:
-bun run dev
-bun run build
+mix deps.get                 # Install dependencies
+mix phx.server               # Start web UI at http://localhost:4000
+mix test                     # Run all tests
+mix escript.build            # Build CLI executable
 ```
 
 ### Version Control
@@ -36,68 +27,105 @@ jj diff                      # Show changes in current commit
 jj git push                  # Push to remote
 jj git fetch                 # Fetch from remote
 ```
-### Document update
 
-Once a crucial decision is made, you ought to log it down at docs/decisions.md. If a new decision
-updates, improves or conflicts upon an older one, you ought to report that down as well. 
+### Document Update
+
+Once a crucial decision is made, log it at `docs/decisions.md`. If a new decision
+updates, improves or conflicts upon an older one, report that as well.
 
 ### Environment Setup
 
 ```bash
-cd apps/backend
+cd apps/agent_harness
 cp .env.example .env
 # Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY in .env
+# OpenRouter takes priority if both are set
 ```
 
 ## Architecture
 
-Culture Engine is a monorepo with a FastAPI backend and a Svelte frontend. The backend is a minimal agent runner that streams SSE events to the frontend.
+Culture Engine is an Elixir/OTP agent runner with a Phoenix LiveView web UI and a CLI REPL. Each agent session is a GenServer with independent conversation history, supervised by OTP.
 
-### Request Flow
+### Interfaces
+
+- **Web UI** — Phoenix LiveView REPL at `http://localhost:4000`
+- **Observatory** — Agent monitoring at `http://localhost:4000/observatory`
+- **CLI** — Interactive terminal REPL via `AgentHarness.CLI`
+
+### Agent Loop
 
 ```
-POST /run (SSE stream)
-  └─ main.py handler
-       └─ run_agent(prompt, system_prompt, workspace_dir, team, ...)
-            ├─ build tool list (read_file, write_file, edit_file, run_command)
-            ├─ create Anthropic client (direct or OpenRouter)
-            ├─ agent loop: request → tool execution → continue
-            └─ yield normalized SSE dict events
+chat(pid, message)
+  └─ run_loop(state, turn, caller)
+       ├─ build tool list (filtered by depth + tier)
+       ├─ API.chat(messages, tools, opts)  →  Anthropic/OpenRouter
+       ├─ handle response:
+       │    ├─ tool_use blocks  →  execute tools, append results, loop
+       │    └─ text only        →  emit result, done
+       └─ special tool handling:
+            ├─ spawn_agent  →  create drone GenServer (sync or async)
+            └─ create_tool  →  register in agent's ToolSet
 ```
 
-`main.py` exposes two endpoints:
-- `GET /health` — health check
-- `POST /run` — SSE agent stream
+### Supervision Tree
 
-SSE events are plain dicts: `{"type": ..., "content": ...}`. Common event types: `tool_use`, `tool_result`, `text`, `result`, `error`.
+```
+AgentHarness.Supervisor
+├─ Registry (AgentHarness.AgentRegistry)       — agent discovery by ID
+├─ DynamicSupervisor (AgentHarness.AgentSupervisor) — manages agent processes
+├─ AgentHarness.ToolRegistry                   — singleton built-in tool registry
+├─ Phoenix.PubSub (AgentHarness.PubSub)        — event broadcasting
+└─ AgentHarnessWeb.Endpoint                    — Phoenix HTTP (port 4000)
+```
 
-### Key Files (`src/backend/`)
+### Key Files (`lib/agent_harness/`)
 
 | File | Responsibility |
 |---|---|
-| `main.py` | FastAPI app with `/health` and `/run` endpoints |
-| `config.py` | Pydantic `BaseSettings` for env-based configuration |
-| `agents/base.py` | `run_agent()` — Anthropic/OpenRouter agent loop, yields SSE events |
-| `agents/tools.py` | `DEFAULT_TOOL_NAMES` — workspace tools: read_file, write_file, edit_file, run_command |
-| `agents/types.py` | `AgentTool`, `AgentToolResult`, `AgentToolSchema`, `TextContent` dataclasses |
+| `agent.ex` | GenServer agent loop — chat, tool execution, drone spawning, turn limits |
+| `api.ex` | HTTP client for Anthropic/OpenRouter Messages API |
+| `tool.ex` | `@behaviour` definition: `name/0`, `description/0`, `input_schema/0`, `execute/1` |
+| `tool_registry.ex` | Singleton GenServer + ETS for built-in tool definitions |
+| `tool_set.ex` | Per-agent ETS table for dynamic tools (isolation between agents) |
+| `names.ex` | Culture-style ship name generator for agents |
+| `script_runner.ex` | Executes shebang scripts for dynamic tools (30s timeout, 50KB cap) |
+| `cli.ex` | Interactive terminal REPL |
+
+### Tools (8 built-in)
+
+| Tool | Available To | Purpose |
+|---|---|---|
+| `read_file` | All | Read file contents |
+| `list_files` | All | List directory entries |
+| `edit_file` | All | Search-and-replace or create files |
+| `run_command` | All | Shell commands (30s timeout, 50KB cap) |
+| `search_files` | All | Regex content search |
+| `list_agents` | All | Discover all running agents |
+| `spawn_agent` | Depth < 3 | Spawn drone for subtask (sync or async) |
+| `create_tool` | Mind only | Define new tools at runtime |
+
+### Multi-Agent System
+
+- **Tiers:** `:mind` (top-level) and `:drone` (spawned subtask agent)
+- **Depth-limited nesting:** Drones can spawn sub-drones up to `@max_depth` (3). Agents at max depth lose `spawn_agent`.
+- **Sync spawning:** Parent blocks while drone runs, receives result as tool output (default)
+- **Async spawning:** Drone dispatched in background, reports back via `{:drone_complete, ...}` message
+- **Identity:** Each agent gets a short UUID, Culture-style ship name, and registers in `AgentHarness.AgentRegistry`
+- **Tool isolation:** Each agent has its own ETS table for dynamic tools via `ToolSet`
 
 ### Agent Tool Safety
 
-- All file tools resolve paths through `_resolve_path()` to prevent workspace escape
-- `run_command` runs in an isolated environment with a 30s timeout and 50 KB output cap
+- `run_command` runs in an isolated environment with a 30s timeout and 50KB output cap
+- Dynamic tools are shebang scripts with the same sandbox constraints (max 10 per agent)
 - For filesystem search, prefer `rg` for content and `fd` for file/path discovery
 
 ### Configuration
 
-`src/backend/config.py` uses Pydantic `BaseSettings` (reads from `.env`):
+Environment variables (loaded from `.env` at startup):
 
 | Setting | Purpose |
 |---|---|
+| `OPENROUTER_API_KEY` | OpenRouter proxy (takes priority) |
 | `ANTHROPIC_API_KEY` | Direct Anthropic access |
-| `OPENROUTER_API_KEY` | OpenRouter proxy (recommended) |
-| `ANTHROPIC_BASE_URL` | Override base URL (e.g., `https://openrouter.ai/api`) |
-| `ANTHROPIC_AUTH_TOKEN` | Auth token for proxy |
-| `DEFAULT_MODEL` | `haiku` (default), `sonnet`, or `opus` |
 
-
-
+Default model: `claude-sonnet-4-20250514`. Max tokens: 8096. API timeout: 120s.
