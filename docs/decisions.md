@@ -178,3 +178,27 @@ Each entry uses a Y-statement summary to capture the "why" concisely.
 - `create_tool` remains mind-only — drones at any depth cannot create tools.
 - The `tools_for_tier/2` function is replaced by `tools_for_agent/2` which checks both tier and depth.
 - Max depth is a module attribute (`@max_depth`) for easy tuning.
+
+---
+
+## 009 — Sanitize tool output to valid UTF-8 and isolate drone crashes
+
+**Date:** 2026-03-08
+**Status:** Accepted
+**Area:** `apps/agent_harness`
+
+> *In the context of* agents reading binary files or running commands that produce
+> non-UTF-8 output, *facing* `Jason.EncodeError` crashes when the invalid bytes
+> are serialized for the API (which propagate up through synchronous
+> `GenServer.call` chains, killing the entire agent tree), *we decided* to
+> sanitize all tool outputs via `AgentHarness.Sanitize.to_valid_utf8/1` (replacing
+> invalid bytes with U+FFFD) and wrap synchronous drone calls in `try/catch` to
+> isolate crashes, *to achieve* resilient agent operation when encountering binary
+> data, *accepting* that binary file contents are lossy (replacement characters)
+> but the agent can still reason about the file type from the readable portions.
+
+**Consequences:**
+- `run_command`, `read_file`, and `ScriptRunner` all sanitize output before returning.
+- A new `AgentHarness.Sanitize` module provides `to_valid_utf8/1`.
+- Synchronous drone crashes now return `{:error, "Drone crashed: ..."}` instead of killing the parent.
+- The Logger formatter crash on binary data is also prevented since sanitized strings never reach it.
