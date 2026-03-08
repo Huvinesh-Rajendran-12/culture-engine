@@ -12,10 +12,12 @@ defmodule AgentHarness.Tools.SpawnAgent do
 
   @impl true
   def description do
+    max = AgentHarness.Agent.max_depth()
+
     "Spawn a drone agent to handle a subtask. By default the drone runs synchronously — " <>
       "you wait for its result like any other tool call. Set async: true to dispatch " <>
       "the drone in the background; it will report back when done. Drones can spawn their " <>
-      "own sub-drones up to a maximum nesting depth of 3. " <>
+      "own sub-drones up to a maximum nesting depth of #{max}. " <>
       "Use this to delegate focused subtasks (e.g., 'read and summarize file X', " <>
       "'search for all TODO comments')."
   end
