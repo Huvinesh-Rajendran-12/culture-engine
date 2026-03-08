@@ -7,13 +7,20 @@ defmodule AgentHarnessWeb.ReplLive do
     _ref = Process.monitor(agent)
     identity = AgentHarness.Agent.get_identity(agent)
 
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(AgentHarness.PubSub, "agents")
+    end
+
     {:ok,
      assign(socket,
        agent: agent,
+       agent_id: identity.id,
        agent_name: identity.name,
        messages: [],
        loading: false,
-       input: ""
+       input: "",
+       drones: %{},
+       pending_spawn: nil
      )}
   end
 
@@ -31,7 +38,9 @@ defmodule AgentHarnessWeb.ReplLive do
         {:noreply,
          assign(socket,
            messages: [%{role: :system, content: "[conversation reset]"}],
-           input: ""
+           input: "",
+           drones: %{},
+           pending_spawn: nil
          )}
 
       true ->
@@ -44,7 +53,111 @@ defmodule AgentHarnessWeb.ReplLive do
     end
   end
 
+  def handle_event("toggle_drone", %{"id" => drone_id}, socket) do
+    case Map.get(socket.assigns.drones, drone_id) do
+      nil ->
+        {:noreply, socket}
+
+      drone ->
+        drone = %{drone | collapsed: !drone.collapsed}
+        {:noreply, assign(socket, drones: Map.put(socket.assigns.drones, drone_id, drone))}
+    end
+  end
+
+  # --- Lifecycle events from "agents" global topic ---
+
   @impl true
+  def handle_info({drone_id, {:agent_started, %{tier: :drone, parent: parent} = info}}, socket) do
+    if parent == socket.assigns.agent do
+      Phoenix.PubSub.subscribe(AgentHarness.PubSub, "agent:#{drone_id}")
+
+      task = if socket.assigns.pending_spawn, do: socket.assigns.pending_spawn.task, else: ""
+
+      drone = %{
+        id: drone_id,
+        name: info.name,
+        task: task,
+        status: :running,
+        events: [],
+        collapsed: false
+      }
+
+      {:noreply,
+       socket
+       |> assign(drones: Map.put(socket.assigns.drones, drone_id, drone), pending_spawn: nil)
+       |> append_message(:drone_spawn, drone_id)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({drone_id, {:agent_stopped, _info}}, socket)
+      when is_map_key(socket.assigns.drones, drone_id) do
+    drone = %{socket.assigns.drones[drone_id] | status: :complete, collapsed: true}
+    {:noreply, assign(socket, drones: Map.put(socket.assigns.drones, drone_id, drone))}
+  end
+
+  def handle_info({drone_id, {:drone_crashed, info}}, socket)
+      when is_map_key(socket.assigns.drones, drone_id) do
+    drone = socket.assigns.drones[drone_id]
+    event = %{type: :error, content: "Crashed: #{info.reason}"}
+    drone = %{drone | status: :error, events: drone.events ++ [event]}
+    {:noreply, assign(socket, drones: Map.put(socket.assigns.drones, drone_id, drone))}
+  end
+
+  # Ignore lifecycle events for other agents
+  def handle_info({_id, {:agent_started, _}}, socket), do: {:noreply, socket}
+  def handle_info({_id, {:agent_stopped, _}}, socket), do: {:noreply, socket}
+  def handle_info({_id, {:drone_crashed, _}}, socket), do: {:noreply, socket}
+
+  # --- Drone events from "agent:<drone_id>" PubSub topic ---
+
+  def handle_info({:agent_event, drone_id, event}, socket)
+      when is_map_key(socket.assigns.drones, drone_id) do
+    drone = socket.assigns.drones[drone_id]
+
+    drone =
+      case event do
+        :done ->
+          %{drone | status: :complete, collapsed: true}
+
+        {:error, reason} ->
+          evt = %{type: :error, content: to_string(reason)}
+          %{drone | status: :error, events: drone.events ++ [evt]}
+
+        {:text, text} ->
+          evt = %{type: :text, content: text}
+          %{drone | events: drone.events ++ [evt]}
+
+        {:tool_use, name, input} ->
+          content = "#{name}: #{inspect(input, pretty: true, limit: 5)}"
+          evt = %{type: :tool_use, content: content}
+          %{drone | events: drone.events ++ [evt]}
+
+        {:tool_result, name, result} ->
+          truncated = String.slice(result, 0..300)
+          evt = %{type: :tool_result, content: "#{name}: #{truncated}"}
+          %{drone | events: drone.events ++ [evt]}
+
+        _ ->
+          drone
+      end
+
+    {:noreply, assign(socket, drones: Map.put(socket.assigns.drones, drone_id, drone))}
+  end
+
+  # --- Mind agent events (from direct send) ---
+
+  # Intercept spawn_agent tool_use — store pending spawn info, don't render as regular message
+  def handle_info({:agent_event, _agent_id, {:tool_use, "spawn_agent", input}}, socket) do
+    {:noreply, assign(socket, pending_spawn: %{task: input["task"] || "", name: input["name"]})}
+  end
+
+  # Suppress spawn_agent tool_result — shown in drone panel instead
+  def handle_info({:agent_event, _agent_id, {:tool_result, "spawn_agent", _result}}, socket) do
+    {:noreply, socket}
+  end
+
   def handle_info({:agent_event, _agent_id, {:text, text}}, socket) do
     {:noreply, append_message(socket, :agent, text)}
   end
@@ -78,26 +191,71 @@ defmodule AgentHarnessWeb.ReplLive do
      |> append_message(:system, "[agent process terminated]")}
   end
 
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
   defp append_message(socket, role, content) do
     message = %{role: role, content: content}
     assign(socket, messages: socket.assigns.messages ++ [message])
   end
+
+  defp active_drone_count(drones) do
+    Enum.count(drones, fn {_id, d} -> d.status == :running end)
+  end
+
+  defp drone_status_text(:running), do: "running"
+  defp drone_status_text(:complete), do: "done"
+  defp drone_status_text(:error), do: "error"
+  defp drone_status_text(_), do: ""
 
   @impl true
   def render(assigns) do
     ~H"""
     <div id="repl-container">
       <div class="header">
+        <span class="header-icon">◈</span>
         <span>{@agent_name}</span>
         <span class="tier-badge">mind</span>
+        <%= if active_drone_count(@drones) > 0 do %>
+          <span class="drone-count">
+            {active_drone_count(@drones)} drone{if active_drone_count(@drones) != 1, do: "s"} active
+          </span>
+        <% end %>
       </div>
 
       <div class="messages" id="messages" phx-hook="ScrollBottom" phx-update="stream">
         <%= for {msg, i} <- Enum.with_index(@messages) do %>
-          <div class={"message #{msg.role}"} id={"msg-#{i}"}><%= msg.content %></div>
+          <%= if msg.role == :drone_spawn do %>
+            <% drone = @drones[msg.content] %>
+            <%= if drone do %>
+              <div class={"drone-panel #{drone.status} #{if drone.collapsed, do: "collapsed", else: ""}"} id={"msg-#{i}"}>
+                <div class="drone-header" phx-click="toggle_drone" phx-value-id={drone.id}>
+                  <span class="drone-indicator">◆</span>
+                  <span class="tier-badge drone">drone</span>
+                  <span class="drone-name">{drone.name}</span>
+                  <span class={"drone-status-badge #{drone.status}"}>{drone_status_text(drone.status)}</span>
+                  <span class="drone-toggle">{if drone.collapsed, do: "▶", else: "▼"}</span>
+                </div>
+                <%= if drone.task != "" do %>
+                  <div class="drone-task">{drone.task}</div>
+                <% end %>
+                <%= unless drone.collapsed do %>
+                  <div class="drone-events">
+                    <%= for {evt, j} <- Enum.with_index(drone.events) do %>
+                      <div class={"drone-event #{evt.type}"} id={"drone-#{drone.id}-evt-#{j}"}>{evt.content}</div>
+                    <% end %>
+                    <%= if drone.status == :running do %>
+                      <div class="loading-indicator">thinking...</div>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
+          <% else %>
+            <div class={"message #{msg.role}"} id={"msg-#{i}"}><%= msg.content %></div>
+          <% end %>
         <% end %>
 
-        <%= if @loading do %>
+        <%= if @loading and active_drone_count(@drones) == 0 do %>
           <div class="loading-indicator" id="loading">thinking...</div>
         <% end %>
       </div>
