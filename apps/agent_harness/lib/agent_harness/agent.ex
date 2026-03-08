@@ -285,7 +285,7 @@ defmodule AgentHarness.Agent do
   defp execute_spawn_agent(state, input) do
     task = input["task"] || ""
     drone_name = input["name"]
-    system = input["system"] || state.system
+    system = input["system"] || AgentHarness.Prompts.default(:drone)
     max_turns = input["max_turns"] || 5
     async = input["async"] == true
 
