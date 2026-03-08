@@ -24,7 +24,7 @@ defmodule AgentHarness.Tools.ReadFile do
   @impl true
   def execute(%{"path" => path}) do
     case File.read(path) do
-      {:ok, content} -> {:ok, AgentHarness.Sanitize.to_valid_utf8(content)}
+      {:ok, content} -> {:ok, content}
       {:error, :enoent} -> {:error, "File not found: #{path}"}
       {:error, reason} -> {:error, "Failed to read #{path}: #{reason}"}
     end
