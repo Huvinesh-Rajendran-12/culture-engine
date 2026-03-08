@@ -333,7 +333,7 @@ defmodule AgentHarness.Agent do
   defp tools_for_agent(tools, %{depth: depth, tier: tier}) do
     blocked =
       (if depth >= @max_depth, do: [SpawnAgent.name()], else: []) ++
-        if(tier == :drone, do: [CreateTool.name()], else: [])
+        if tier == :drone, do: [CreateTool.name()], else: []
 
     case blocked do
       [] -> tools
