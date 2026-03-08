@@ -13,9 +13,11 @@ defmodule AgentHarness.Agent do
   require Logger
 
   alias AgentHarness.{API, Names, ToolSet}
-  alias AgentHarness.Tools.CreateTool
+  alias AgentHarness.Tools.{CreateTool, SpawnAgent}
 
+  # Maximum nesting depth for drone spawning (also referenced by SpawnAgent tool description)
   @max_depth 3
+  def max_depth, do: @max_depth
 
   defstruct [
     :id,
@@ -325,16 +327,19 @@ defmodule AgentHarness.Agent do
     end
   end
 
-  # Agents at max depth cannot spawn further agents; create_tool always requires mind tier
-  defp tools_for_agent(tools, %{depth: depth}) when depth >= @max_depth do
-    Enum.reject(tools, &(&1["name"] in ~w(spawn_agent create_tool)))
-  end
+  # Build the set of tool names this agent cannot use:
+  # - spawn_agent is blocked at max depth (prevents infinite nesting)
+  # - create_tool is blocked for all drones (mind-only capability)
+  defp tools_for_agent(tools, %{depth: depth, tier: tier}) do
+    blocked =
+      (if depth >= @max_depth, do: [SpawnAgent.name()], else: []) ++
+        if(tier == :drone, do: [CreateTool.name()], else: [])
 
-  defp tools_for_agent(tools, %{tier: :drone}) do
-    Enum.reject(tools, &(&1["name"] == "create_tool"))
+    case blocked do
+      [] -> tools
+      _ -> Enum.reject(tools, &(&1["name"] in blocked))
+    end
   end
-
-  defp tools_for_agent(tools, _state), do: tools
 
   defp emit(state, caller, event) do
     if caller, do: send(caller, {:agent_event, state.id, event})
