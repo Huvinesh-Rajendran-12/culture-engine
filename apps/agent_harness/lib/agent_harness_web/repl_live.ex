@@ -176,7 +176,7 @@ defmodule AgentHarnessWeb.ReplLive do
   end
 
   defp cap_events(events, new_event) do
-    (events ++ [new_event]) |> Enum.take(-@max_drone_events)
+    [new_event | events] |> Enum.take(@max_drone_events)
   end
 
   defp active_drone_count(drones) do
@@ -223,7 +223,7 @@ defmodule AgentHarnessWeb.ReplLive do
                 <% end %>
                 <%= unless drone.collapsed do %>
                   <div class="drone-events">
-                    <%= for {evt, j} <- Enum.with_index(drone.events) do %>
+                    <%= for {evt, j} <- Enum.with_index(Enum.reverse(drone.events)) do %>
                       <div class={"drone-event #{evt.type}"} id={"drone-#{drone.id}-evt-#{j}"}>{evt.content}</div>
                     <% end %>
                     <%= if drone.status == :running do %>
