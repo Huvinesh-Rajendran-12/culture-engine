@@ -190,15 +190,17 @@ defmodule AgentHarnessWeb.ReplLive do
 
   @impl true
   def render(assigns) do
+    assigns = assign(assigns, :active_drone_count, active_drone_count(assigns.drones))
+
     ~H"""
     <div id="repl-container">
       <div class="header">
         <span class="header-icon">◈</span>
         <span>{@agent_name}</span>
         <span class="tier-badge">mind</span>
-        <%= if active_drone_count(@drones) > 0 do %>
+        <%= if @active_drone_count > 0 do %>
           <span class="drone-count">
-            {active_drone_count(@drones)} drone{if active_drone_count(@drones) != 1, do: "s"} active
+            {@active_drone_count} drone{if @active_drone_count != 1, do: "s"} active
           </span>
         <% end %>
       </div>
@@ -236,7 +238,7 @@ defmodule AgentHarnessWeb.ReplLive do
           <% end %>
         <% end %>
 
-        <%= if @loading and active_drone_count(@drones) == 0 do %>
+        <%= if @loading and @active_drone_count == 0 do %>
           <div class="loading-indicator" id="loading">thinking...</div>
         <% end %>
       </div>
