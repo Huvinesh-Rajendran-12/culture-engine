@@ -59,6 +59,30 @@ defmodule AgentHarnessWeb.ObservatoryLive do
 
   def handle_info(_msg, socket), do: {:noreply, socket}
 
+  defp agent_card_style(agent, selected_id) do
+    selected = selected_id == agent.id
+    drone = agent.tier == :drone
+
+    border_color = if selected, do: "#58a6ff", else: "#21262d"
+    left_border_color = cond do
+      drone -> "#8b5cf6"
+      selected -> "#58a6ff"
+      true -> "#21262d"
+    end
+
+    [
+      "padding: 10px 12px",
+      "margin-bottom: 6px",
+      "border-radius: 6px",
+      "cursor: pointer",
+      "margin-left: #{if drone, do: "24px", else: "0"}",
+      "border: 1px solid #{border_color}",
+      "background: #{if selected, do: "#161b22", else: "transparent"}",
+      "border-left: 3px solid #{left_border_color}"
+    ]
+    |> Enum.join("; ")
+  end
+
   defp load_agents do
     raw = AgentHarness.Agent.list_agents()
     pid_to_id = Map.new(raw, fn {id, pid, _meta} -> {pid, id} end)
@@ -98,7 +122,7 @@ defmodule AgentHarnessWeb.ObservatoryLive do
             <div
               phx-click="select_agent"
               phx-value-id={agent.id}
-              style={"padding: 10px 12px; margin-bottom: 6px; border-radius: 6px; cursor: pointer; margin-left: #{if agent.tier == :drone, do: "24px", else: "0"}; border: 1px solid #{if @selected_id == agent.id, do: "#58a6ff", else: "#21262d"}; background: #{if @selected_id == agent.id, do: "#161b22", else: "transparent"}; border-left: 3px solid #{if agent.tier == :drone, do: "#8b5cf6", else: if(@selected_id == agent.id, do: "#58a6ff", else: "#21262d")};"}
+              style={agent_card_style(agent, @selected_id)}
             >
               <div style="font-size: 13px; font-weight: 600; color: #c9d1d9; display: flex; align-items: center; gap: 6px;">
                 <span style={"color: #{if agent.tier == :drone, do: "#d2a8ff", else: "#58a6ff"}; font-size: 10px;"}>{if agent.tier == :drone, do: "◆", else: "◈"}</span>
