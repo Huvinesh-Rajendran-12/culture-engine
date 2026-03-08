@@ -7,6 +7,8 @@ defmodule AgentHarnessWeb.ObservatoryLive do
   """
   use Phoenix.LiveView
 
+  alias AgentHarnessWeb.EventFormatter
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -50,7 +52,7 @@ defmodule AgentHarnessWeb.ObservatoryLive do
 
   # Agent events from "agent:<id>" topic
   def handle_info({:agent_event, _agent_id, event}, socket) do
-    entry = format_event(event)
+    entry = EventFormatter.format(event)
     events = [entry | socket.assigns.events] |> Enum.take(@max_events)
     {:noreply, assign(socket, events: events)}
   end
@@ -81,13 +83,6 @@ defmodule AgentHarnessWeb.ObservatoryLive do
       [mind | children]
     end)
   end
-
-  defp format_event({:text, text}), do: %{type: :text, content: text}
-  defp format_event({:tool_use, name, input}), do: %{type: :tool_use, content: "#{name}: #{inspect(input, limit: 5)}"}
-  defp format_event({:tool_result, name, result}), do: %{type: :tool_result, content: "#{name}: #{String.slice(result, 0..300)}"}
-  defp format_event({:error, reason}), do: %{type: :error, content: to_string(reason)}
-  defp format_event(:done), do: %{type: :system, content: "[done]"}
-  defp format_event(other), do: %{type: :system, content: inspect(other)}
 
   @impl true
   def render(assigns) do
