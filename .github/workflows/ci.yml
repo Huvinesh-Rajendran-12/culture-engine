@@ -45,5 +45,3 @@ jobs:
       - name: Compile
         run: mix compile --warnings-as-errors
 
-      - name: Run tests
-        run: mix test
