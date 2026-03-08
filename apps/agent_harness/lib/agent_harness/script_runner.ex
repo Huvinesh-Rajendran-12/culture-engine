@@ -18,10 +18,11 @@ defmodule AgentHarness.ScriptRunner do
         shell_cmd = ~s(TOOL_INPUT='#{escaped}' '#{escaped_path}' </dev/null)
 
         port =
-          Port.open({:spawn, shell_cmd}, [
+          Port.open({:spawn_executable, "/bin/sh"}, [
             :binary,
             :exit_status,
-            :stderr_to_stdout
+            :stderr_to_stdout,
+            args: ["-c", shell_cmd]
           ])
 
         collect_port_output(port, "")
