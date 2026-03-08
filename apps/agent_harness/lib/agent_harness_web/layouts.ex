@@ -176,6 +176,19 @@ defmodule AgentHarnessWeb.Layouts do
             cursor: not-allowed;
           }
 
+          .header-icon {
+            color: #58a6ff;
+            font-size: 16px;
+            margin-right: 4px;
+          }
+
+          .drone-count {
+            font-size: 12px;
+            color: #d2a8ff;
+            margin-left: 12px;
+            font-weight: 400;
+          }
+
           .loading-indicator {
             display: inline-block;
             color: #8b949e;
@@ -185,6 +198,153 @@ defmodule AgentHarnessWeb.Layouts do
           @keyframes pulse {
             0%, 100% { opacity: 0.4; }
             50% { opacity: 1; }
+          }
+
+          /* --- Drone Panel --- */
+
+          .drone-panel {
+            margin: 12px 0;
+            border: 1px solid #30363d;
+            border-left: 3px solid #8b5cf6;
+            border-radius: 6px;
+            background: #161b22;
+            overflow: hidden;
+            animation: drone-appear 0.2s ease-out;
+          }
+
+          @keyframes drone-appear {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+
+          .drone-panel.complete {
+            border-left-color: #3fb950;
+            opacity: 0.85;
+          }
+
+          .drone-panel.error {
+            border-left-color: #f85149;
+          }
+
+          .drone-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            cursor: pointer;
+            background: #1c2128;
+            user-select: none;
+          }
+
+          .drone-header:hover {
+            background: #21262d;
+          }
+
+          .drone-indicator {
+            color: #d2a8ff;
+            font-size: 12px;
+          }
+
+          .drone-name {
+            color: #d2a8ff;
+            font-weight: 600;
+            flex: 1;
+            font-size: 13px;
+          }
+
+          .drone-toggle {
+            color: #8b949e;
+            font-size: 11px;
+          }
+
+          .drone-status-badge {
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+          }
+
+          .drone-status-badge.running {
+            background: #1f2d1f;
+            color: #7ee787;
+            animation: pulse 1.5s ease-in-out infinite;
+          }
+
+          .drone-status-badge.complete {
+            background: #1f2d1f;
+            color: #3fb950;
+          }
+
+          .drone-status-badge.error {
+            background: #2d1f1f;
+            color: #f85149;
+          }
+
+          .drone-task {
+            padding: 6px 12px;
+            font-size: 12px;
+            color: #8b949e;
+            border-bottom: 1px solid #21262d;
+            white-space: pre-wrap;
+            word-break: break-word;
+          }
+
+          .drone-panel.collapsed .drone-task,
+          .drone-panel.collapsed .drone-events {
+            display: none;
+          }
+
+          .drone-events {
+            padding: 8px 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 12px;
+          }
+
+          .drone-event {
+            padding: 3px 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+          }
+
+          .drone-event.tool_use {
+            color: #d2a8ff;
+          }
+          .drone-event.tool_use::before {
+            content: "[tool] ";
+            color: #bc8cff;
+            font-weight: 600;
+          }
+
+          .drone-event.tool_result {
+            color: #a5d6ff;
+            max-height: 120px;
+            overflow-y: auto;
+          }
+          .drone-event.tool_result::before {
+            content: "[result] ";
+            color: #58a6ff;
+            font-weight: 600;
+          }
+
+          .drone-event.text {
+            color: #7ee787;
+          }
+          .drone-event.text::before {
+            content: "drone> ";
+            color: #3fb950;
+            font-weight: 600;
+          }
+
+          .drone-event.error {
+            color: #ffa198;
+          }
+          .drone-event.error::before {
+            content: "[error] ";
+            color: #f85149;
+            font-weight: 600;
           }
         </style>
       </head>

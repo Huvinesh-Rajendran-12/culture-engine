@@ -367,7 +367,7 @@ defmodule AgentHarness.Agent do
 
   defp emit(state, caller, event) do
     if caller, do: send(caller, {:agent_event, state.id, event})
-    Phoenix.PubSub.broadcast(AgentHarness.PubSub, "agent:#{state.id}", {:agent_event, event})
+    Phoenix.PubSub.broadcast(AgentHarness.PubSub, "agent:#{state.id}", {:agent_event, state.id, event})
   end
 
   defp broadcast_lifecycle(state, event) do

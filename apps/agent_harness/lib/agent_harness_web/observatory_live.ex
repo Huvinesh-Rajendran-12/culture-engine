@@ -49,7 +49,7 @@ defmodule AgentHarnessWeb.ObservatoryLive do
   @max_events 500
 
   # Agent events from "agent:<id>" topic
-  def handle_info({:agent_event, event}, socket) do
+  def handle_info({:agent_event, _agent_id, event}, socket) do
     entry = format_event(event)
     events = [entry | socket.assigns.events] |> Enum.take(@max_events)
     {:noreply, assign(socket, events: events)}
@@ -58,16 +58,28 @@ defmodule AgentHarnessWeb.ObservatoryLive do
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   defp load_agents do
-    AgentHarness.Agent.list_agents()
-    |> Enum.map(fn {id, _pid, meta} ->
-      %{
-        id: id,
-        name: meta[:name] || "unknown",
-        tier: meta[:tier] || :unknown,
-        parent: meta[:parent]
-      }
+    raw = AgentHarness.Agent.list_agents()
+    pid_to_id = Map.new(raw, fn {id, pid, _meta} -> {pid, id} end)
+
+    agents =
+      Enum.map(raw, fn {id, _pid, meta} ->
+        %{
+          id: id,
+          name: meta[:name] || "unknown",
+          tier: meta[:tier] || :unknown,
+          parent: meta[:parent],
+          parent_id: if(meta[:parent], do: Map.get(pid_to_id, meta[:parent]))
+        }
+      end)
+
+    minds = agents |> Enum.filter(&(&1.tier == :mind)) |> Enum.sort_by(& &1.name)
+    drones = Enum.filter(agents, &(&1.tier == :drone))
+
+    # Build tree: each mind followed by its drones
+    Enum.flat_map(minds, fn mind ->
+      children = drones |> Enum.filter(&(&1.parent_id == mind.id)) |> Enum.sort_by(& &1.name)
+      [mind | children]
     end)
-    |> Enum.sort_by(& &1.tier)
   end
 
   defp format_event({:text, text}), do: %{type: :text, content: text}
@@ -91,20 +103,16 @@ defmodule AgentHarnessWeb.ObservatoryLive do
             <div
               phx-click="select_agent"
               phx-value-id={agent.id}
-              style={"padding: 10px 12px; margin-bottom: 6px; border-radius: 6px; cursor: pointer; border: 1px solid #{if @selected_id == agent.id, do: "#58a6ff", else: "#21262d"}; background: #{if @selected_id == agent.id, do: "#161b22", else: "transparent"};"}
+              style={"padding: 10px 12px; margin-bottom: 6px; border-radius: 6px; cursor: pointer; margin-left: #{if agent.tier == :drone, do: "24px", else: "0"}; border: 1px solid #{if @selected_id == agent.id, do: "#58a6ff", else: "#21262d"}; background: #{if @selected_id == agent.id, do: "#161b22", else: "transparent"}; border-left: 3px solid #{if agent.tier == :drone, do: "#8b5cf6", else: if(@selected_id == agent.id, do: "#58a6ff", else: "#21262d")};"}
             >
-              <div style="font-size: 13px; font-weight: 600; color: #c9d1d9;">
+              <div style="font-size: 13px; font-weight: 600; color: #c9d1d9; display: flex; align-items: center; gap: 6px;">
+                <span style={"color: #{if agent.tier == :drone, do: "#d2a8ff", else: "#58a6ff"}; font-size: 10px;"}>{if agent.tier == :drone, do: "◆", else: "◈"}</span>
                 {agent.name}
               </div>
               <div style="font-size: 11px; color: #8b949e; margin-top: 2px;">
                 <span class={"tier-badge #{agent.tier}"}>{agent.tier}</span>
                 <span style="margin-left: 8px;">{agent.id}</span>
               </div>
-              <%= if agent.parent do %>
-                <div style="font-size: 11px; color: #6e7681; margin-top: 2px;">
-                  parent: {inspect(agent.parent)}
-                </div>
-              <% end %>
             </div>
           <% end %>
         <% end %>
