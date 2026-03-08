@@ -310,14 +310,20 @@ defmodule AgentHarness.Agent do
             state = %{state | pending_drones: pending}
             {:ok, "Drone '#{actual_name}' (#{drone_id}) dispatched asynchronously. It will report back when done.", state}
           else
-            case chat(drone_pid, task) do
-              {:ok, result} ->
-                DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
-                {:ok, result}
+            try do
+              case chat(drone_pid, task) do
+                {:ok, result} ->
+                  DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
+                  {:ok, result}
 
-              {:error, reason} ->
+                {:error, reason} ->
+                  DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
+                  {:error, "Drone failed: #{reason}"}
+              end
+            catch
+              :exit, reason ->
                 DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
-                {:error, "Drone failed: #{reason}"}
+                {:error, "Drone crashed: #{inspect(reason)}"}
             end
           end
 

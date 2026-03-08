@@ -25,7 +25,7 @@ defmodule AgentHarness.ScriptRunner do
       end)
 
     case Task.yield(task, @timeout_ms) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {:ok, output}} -> {:ok, truncate(output)}
+      {:ok, {:ok, output}} -> {:ok, output |> truncate() |> AgentHarness.Sanitize.to_valid_utf8()}
       {:ok, {:error, reason}} -> {:error, reason}
       nil -> {:error, "Tool script timed out after #{div(@timeout_ms, 1000)} seconds"}
     end
