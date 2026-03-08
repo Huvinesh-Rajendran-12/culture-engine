@@ -239,7 +239,7 @@ defmodule AgentHarness.Agent do
           result = %{
             "type" => "tool_result",
             "tool_use_id" => id,
-            "content" => String.scrub(output)
+            "content" => String.replace_invalid(output)
           }
 
           result = if status == :error, do: Map.put(result, "is_error", true), else: result
