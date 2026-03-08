@@ -12,6 +12,18 @@ defmodule AgentHarness.Agent do
   use GenServer
   require Logger
 
+  # Agents are task-driven workers — auto-restart makes no sense because a restarted
+  # agent has no messages and no caller. :temporary prevents orphan drone processes
+  # from accumulating when a sync drone crashes and the supervisor restarts it before
+  # the after block can terminate it.
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      restart: :temporary
+    }
+  end
+
   alias AgentHarness.{API, Names, ToolSet}
   alias AgentHarness.Tools.{CreateTool, SpawnAgent}
 
@@ -310,13 +322,24 @@ defmodule AgentHarness.Agent do
             state = %{state | pending_drones: pending}
             {:ok, "Drone '#{actual_name}' (#{drone_id}) dispatched asynchronously. It will report back when done.", state}
           else
+            %{id: drone_id, name: actual_name} = get_identity(drone_pid)
+
             try do
               case chat(drone_pid, task) do
-                {:ok, result} -> {:ok, result}
-                {:error, reason} -> {:error, "Drone failed: #{inspect(reason)}"}
+                {:ok, result} ->
+                  {:ok, result}
+
+                {:error, reason} ->
+                  safe_reason = if is_binary(reason), do: reason, else: inspect(reason, limit: 10)
+                  broadcast_lifecycle(state, {:drone_crashed, %{id: drone_id, name: actual_name, reason: safe_reason}})
+                  Logger.warning("[agent] Drone '#{actual_name}' (#{drone_id}) failed: #{safe_reason}")
+                  {:error, "Drone '#{actual_name}' (#{drone_id}) failed: #{safe_reason}"}
               end
             catch
-              kind, reason -> {:error, "Drone crashed: #{inspect({kind, reason})}"}
+              _kind, _reason ->
+                broadcast_lifecycle(state, {:drone_crashed, %{id: drone_id, name: actual_name, reason: "unexpected crash"}})
+                Logger.error("[agent] Drone '#{actual_name}' (#{drone_id}) crashed unexpectedly")
+                {:error, "Drone '#{actual_name}' (#{drone_id}) crashed unexpectedly"}
             after
               DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, drone_pid)
             end
