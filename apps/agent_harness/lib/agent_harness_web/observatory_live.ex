@@ -59,15 +59,15 @@ defmodule AgentHarnessWeb.ObservatoryLive do
 
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  defp agent_card_style(agent, selected_id) do
+  defp agent_card_style(agent, depth, selected_id) do
     selected = selected_id == agent.id
-    drone = agent.tier == :drone
 
     border_color = if selected, do: "#58a6ff", else: "#21262d"
     left_border_color = cond do
-      drone -> "#8b5cf6"
-      selected -> "#58a6ff"
-      true -> "#21262d"
+      depth == 0 and selected -> "#58a6ff"
+      depth == 0              -> "#21262d"
+      depth == 1              -> "#8b5cf6"
+      true                    -> "#6b46a8"
     end
 
     [
@@ -75,13 +75,21 @@ defmodule AgentHarnessWeb.ObservatoryLive do
       "margin-bottom: 6px",
       "border-radius: 6px",
       "cursor: pointer",
-      "margin-left: #{if drone, do: "24px", else: "0"}",
+      "margin-left: #{depth * 24}px",
       "border: 1px solid #{border_color}",
       "background: #{if selected, do: "#161b22", else: "transparent"}",
       "border-left: 3px solid #{left_border_color}"
     ]
     |> Enum.join("; ")
   end
+
+  defp icon_for_depth(0), do: "◈"
+  defp icon_for_depth(1), do: "◆"
+  defp icon_for_depth(_), do: "◇"
+
+  defp icon_color(0), do: "#58a6ff"
+  defp icon_color(1), do: "#d2a8ff"
+  defp icon_color(_), do: "#a78bfa"
 
   defp load_agents do
     raw = AgentHarness.Agent.list_agents()
@@ -93,18 +101,21 @@ defmodule AgentHarnessWeb.ObservatoryLive do
           id: id,
           name: meta[:name] || "unknown",
           tier: meta[:tier] || :unknown,
-          parent: meta[:parent],
           parent_id: if(meta[:parent], do: Map.get(pid_to_id, meta[:parent]))
         }
       end)
 
-    minds = agents |> Enum.filter(&(&1.tier == :mind)) |> Enum.sort_by(& &1.name)
-    drones = Enum.filter(agents, &(&1.tier == :drone))
+    # Group by parent_id — nil means root (mind)
+    children_map = Enum.group_by(agents, & &1.parent_id)
+    roots = Map.get(children_map, nil, []) |> Enum.sort_by(& &1.name)
 
-    # Build tree: each mind followed by its drones
-    Enum.flat_map(minds, fn mind ->
-      children = drones |> Enum.filter(&(&1.parent_id == mind.id)) |> Enum.sort_by(& &1.name)
-      [mind | children]
+    flatten_tree(roots, children_map, 0)
+  end
+
+  defp flatten_tree(nodes, children_map, depth) do
+    Enum.flat_map(nodes, fn agent ->
+      children = Map.get(children_map, agent.id, []) |> Enum.sort_by(& &1.name)
+      [{agent, depth} | flatten_tree(children, children_map, depth + 1)]
     end)
   end
 
@@ -118,14 +129,14 @@ defmodule AgentHarnessWeb.ObservatoryLive do
         <%= if @agents == [] do %>
           <p style="color: #8b949e; font-size: 13px;">No agents running.</p>
         <% else %>
-          <%= for agent <- @agents do %>
+          <%= for {agent, depth} <- @agents do %>
             <div
               phx-click="select_agent"
               phx-value-id={agent.id}
-              style={agent_card_style(agent, @selected_id)}
+              style={agent_card_style(agent, depth, @selected_id)}
             >
               <div style="font-size: 13px; font-weight: 600; color: #c9d1d9; display: flex; align-items: center; gap: 6px;">
-                <span style={"color: #{if agent.tier == :drone, do: "#d2a8ff", else: "#58a6ff"}; font-size: 10px;"}>{if agent.tier == :drone, do: "◆", else: "◈"}</span>
+                <span style={"color: #{icon_color(depth)}; font-size: 10px;"}>{icon_for_depth(depth)}</span>
                 {agent.name}
               </div>
               <div style="font-size: 11px; color: #8b949e; margin-top: 2px;">
