@@ -25,6 +25,7 @@ defmodule AgentHarness.Tools.ListAgentsTest do
              "tier" => "drone",
              "parent" => parent
            } = Enum.find(agents, &(&1["id"] == drone_identity.id))
+
     assert id == drone_identity.id
     assert parent == parent_identity.id
 

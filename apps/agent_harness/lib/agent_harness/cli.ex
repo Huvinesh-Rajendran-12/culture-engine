@@ -5,9 +5,7 @@ defmodule AgentHarness.CLI do
 
   def main(_args \\ []) do
     {:ok, agent} =
-      AgentHarness.Agent.start_supervised(
-        system: AgentHarness.Prompts.default(:mind)
-      )
+      AgentHarness.Agent.start_supervised(system: AgentHarness.Prompts.default(:mind))
 
     identity = AgentHarness.Agent.get_identity(agent)
     IO.puts("Agent Harness v0.1.0")

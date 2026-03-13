@@ -52,7 +52,12 @@ defmodule AgentHarness.Tools.CreateTool do
   end
 
   @doc "Validates create_tool input. Returns `:ok` or `{:error, reason}`."
-  def validate(%{"name" => name, "description" => _, "input_schema" => schema, "script" => script})
+  def validate(%{
+        "name" => name,
+        "description" => _,
+        "input_schema" => schema,
+        "script" => script
+      })
       when is_binary(name) and is_binary(script) and is_map(schema) do
     cond do
       not Regex.match?(~r/^[a-z][a-z0-9_]{0,49}$/, name) ->

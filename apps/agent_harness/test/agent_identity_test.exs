@@ -71,8 +71,10 @@ defmodule AgentHarness.AgentIdentityTest do
 
     assert {:error, "Max turns (0) reached"} = Agent.chat(pid, "hello")
 
-    assert_receive {:agent_event, {:error, "Max turns (0) reached"}}, 5000
-    assert_receive {:agent_event, :done}, 5000
+    assert_receive {:agent_event, agent_id, {:error, "Max turns (0) reached"}}, 5000
+    assert agent_id == identity.id
+    assert_receive {:agent_event, agent_id, :done}, 5000
+    assert agent_id == identity.id
 
     DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, pid)
   end

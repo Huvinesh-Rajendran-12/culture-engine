@@ -48,6 +48,14 @@ defmodule AgentHarnessWeb.ObservatoryLive do
     {:noreply, assign(socket, agents: load_agents())}
   end
 
+  def handle_info({_agent_id, {:drone_completed, _info}}, socket) do
+    {:noreply, assign(socket, agents: load_agents())}
+  end
+
+  def handle_info({_agent_id, {:drone_crashed, _info}}, socket) do
+    {:noreply, assign(socket, agents: load_agents())}
+  end
+
   @max_events 500
 
   # Agent events from "agent:<id>" topic
@@ -63,12 +71,14 @@ defmodule AgentHarnessWeb.ObservatoryLive do
     selected = selected_id == agent.id
 
     border_color = if selected, do: "#58a6ff", else: "#21262d"
-    left_border_color = cond do
-      depth == 0 and selected -> "#58a6ff"
-      depth == 0              -> "#21262d"
-      depth == 1              -> "#8b5cf6"
-      true                    -> "#6b46a8"
-    end
+
+    left_border_color =
+      cond do
+        depth == 0 and selected -> "#58a6ff"
+        depth == 0 -> "#21262d"
+        depth == 1 -> "#8b5cf6"
+        true -> "#6b46a8"
+      end
 
     [
       "padding: 10px 12px",

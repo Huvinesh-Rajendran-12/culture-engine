@@ -30,9 +30,13 @@ defmodule AgentHarness.ToolSetTest do
 
   test "register adds a dynamic tool", %{table: table} do
     {:ok, _} =
-      ToolSet.register(table, "my_tool", "A test tool",
+      ToolSet.register(
+        table,
+        "my_tool",
+        "A test tool",
         %{"type" => "object", "properties" => %{}},
-        "#!/bin/sh\necho hello")
+        "#!/bin/sh\necho hello"
+      )
 
     defs = ToolSet.all_definitions(table)
     names = Enum.map(defs, & &1["name"])
@@ -41,9 +45,13 @@ defmodule AgentHarness.ToolSetTest do
 
   test "execute runs dynamic tool", %{table: table} do
     {:ok, _} =
-      ToolSet.register(table, "echo_tool", "Echoes",
+      ToolSet.register(
+        table,
+        "echo_tool",
+        "Echoes",
         %{"type" => "object", "properties" => %{}},
-        "#!/bin/sh\necho dynamic")
+        "#!/bin/sh\necho dynamic"
+      )
 
     assert {:ok, "dynamic\n"} = ToolSet.execute(table, "echo_tool", %{})
   end
@@ -63,14 +71,22 @@ defmodule AgentHarness.ToolSetTest do
   test "enforces max dynamic tool limit", %{table: table} do
     for i <- 1..10 do
       {:ok, _} =
-        ToolSet.register(table, "tool_#{i}", "Tool #{i}",
+        ToolSet.register(
+          table,
+          "tool_#{i}",
+          "Tool #{i}",
           %{"type" => "object", "properties" => %{}},
-          "#!/bin/sh\necho #{i}")
+          "#!/bin/sh\necho #{i}"
+        )
     end
 
     assert {:error, "Maximum dynamic tools (10) reached"} =
-             ToolSet.register(table, "tool_11", "Too many",
+             ToolSet.register(
+               table,
+               "tool_11",
+               "Too many",
                %{"type" => "object", "properties" => %{}},
-               "#!/bin/sh\necho 11")
+               "#!/bin/sh\necho 11"
+             )
   end
 end

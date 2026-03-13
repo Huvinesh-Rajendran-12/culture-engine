@@ -5,7 +5,8 @@ defmodule AgentHarness.Tools.ListFiles do
   def name, do: "list_files"
 
   @impl true
-  def description, do: "List files and directories at the given path. Directories have a trailing slash."
+  def description,
+    do: "List files and directories at the given path. Directories have a trailing slash."
 
   @impl true
   def input_schema do

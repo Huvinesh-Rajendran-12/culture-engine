@@ -7,7 +7,9 @@ defmodule AgentHarnessWeb.ReplLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, agent} = AgentHarness.Agent.start_supervised(system: AgentHarness.Prompts.default(:mind))
+    {:ok, agent} =
+      AgentHarness.Agent.start_supervised(system: AgentHarness.Prompts.default(:mind))
+
     _ref = Process.monitor(agent)
     identity = AgentHarness.Agent.get_identity(agent)
 
@@ -95,7 +97,9 @@ defmodule AgentHarnessWeb.ReplLive do
   def handle_info({drone_id, {:drone_crashed, info}}, socket)
       when is_map_key(socket.assigns.drones, drone_id) do
     evt = %{type: :error, content: "Crashed: #{info.reason}"}
-    {:noreply, update_drone(socket, drone_id, &%{&1 | status: :error, events: cap_events(&1.events, evt)})}
+
+    {:noreply,
+     update_drone(socket, drone_id, &%{&1 | status: :error, events: cap_events(&1.events, evt)})}
   end
 
   # Ignore lifecycle events for other agents

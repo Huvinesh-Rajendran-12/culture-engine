@@ -16,7 +16,8 @@ defmodule Mix.Tasks.TestAgent do
 
     {:ok, agent} =
       AgentHarness.Agent.start_supervised(
-        system: "You are a helpful coding assistant with access to file tools. Use them to help the user."
+        system:
+          "You are a helpful coding assistant with access to file tools. Use them to help the user."
       )
 
     identity = AgentHarness.Agent.get_identity(agent)
