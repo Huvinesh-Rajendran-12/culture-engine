@@ -203,3 +203,30 @@ Each entry uses a Y-statement summary to capture the "why" concisely.
 - No new module is needed; `String.replace_invalid/1` is part of Elixir's stdlib.
 - Synchronous drone crashes now return `{:error, "Drone crashed: ..."}` instead of killing the parent.
 - The Logger formatter crash on binary data is also prevented since sanitized strings never reach it.
+
+---
+
+## 010 — Async parallel drone spawning via accumulate-and-resume
+
+**Date:** 2026-03-13
+**Status:** Accepted (updates D006, D008)
+**Area:** `apps/agent_harness`
+
+> *In the context of* wanting a Mind agent to delegate multiple subtasks in
+> parallel, *facing* a broken `handle_info(:drone_complete)` flow that could
+> emit a second wave of turn events after `:done` and made mid-turn polling
+> stale while the GenServer was busy, *we decided* to store the `caller` PID on
+> the Agent struct, accumulate completed drone results in a
+> `completed_drones` list, drain queued drone messages between model/tool
+> steps, and expose explicit lifecycle tools for inspecting, collecting, and
+> cancelling async drones, *to achieve* parallel async delegation where the
+> Mind can continue working, poll for progress, and decide when to consume
+> drone output, *accepting* that async drone completions are buffered state and
+> do not automatically resume a finished turn.
+
+**Consequences:**
+- `caller` is stored on the struct during `chat_async` so emitted events keep reaching the original caller while the turn is active.
+- Drone results accumulate in `completed_drones` until the Mind explicitly collects them.
+- `Process.monitor/1` is called on async drone PIDs; `handle_info(:DOWN)` catches crashes and records them as error results.
+- New `list_drones`, `collect_drone_results`, and `cancel_drones` tools let the model inspect, consume, and stop async drones explicitly.
+- Observatory handles new `:drone_completed` and `:drone_crashed` lifecycle events.

@@ -16,7 +16,8 @@ defmodule AgentHarness.Tools.SpawnAgent do
 
     "Spawn a drone agent to handle a subtask. By default the drone runs synchronously — " <>
       "you wait for its result like any other tool call. Set async: true to dispatch " <>
-      "the drone in the background; it will report back when done. Drones can spawn their " <>
+      "the drone in the background; the result stays available until you explicitly " <>
+      "inspect, collect, or cancel it with the drone lifecycle tools. Drones can spawn their " <>
       "own sub-drones up to a maximum nesting depth of #{max}. " <>
       "Use this to delegate focused subtasks (e.g., 'read and summarize file X', " <>
       "'search for all TODO comments')."

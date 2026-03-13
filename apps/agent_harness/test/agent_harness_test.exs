@@ -8,10 +8,14 @@ defmodule AgentHarness.BuiltinToolsTest do
     names = Enum.map(defs, & &1["name"])
     assert "read_file" in names
     assert "list_files" in names
+    assert "write_file" in names
     assert "edit_file" in names
     assert "create_tool" in names
     assert "spawn_agent" in names
     assert "list_agents" in names
+    assert "list_drones" in names
+    assert "collect_drone_results" in names
+    assert "cancel_drones" in names
 
     for def <- defs do
       assert Map.has_key?(def, "name")
@@ -57,6 +61,20 @@ defmodule AgentHarness.BuiltinToolsTest do
                "path" => path,
                "old_string" => "",
                "new_string" => "new content"
+             })
+
+    assert File.read!(path) == "new content"
+    File.rm!(path)
+  end
+
+  test "execute write_file replaces the entire file content" do
+    path = Path.join(System.tmp_dir!(), "harness_test_write.txt")
+    File.write!(path, "old content")
+
+    assert {:ok, _} =
+             ToolRegistry.execute("write_file", %{
+               "path" => path,
+               "content" => "new content"
              })
 
     assert File.read!(path) == "new content"

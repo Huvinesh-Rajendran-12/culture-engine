@@ -19,6 +19,7 @@ defmodule AgentHarness.ToolRegistryTest do
       names = Enum.map(defs, & &1["name"])
 
       assert "read_file" in names
+      assert "write_file" in names
       assert "edit_file" in names
       assert "list_files" in names
       assert "run_command" in names
@@ -26,6 +27,9 @@ defmodule AgentHarness.ToolRegistryTest do
       assert "create_tool" in names
       assert "spawn_agent" in names
       assert "list_agents" in names
+      assert "list_drones" in names
+      assert "collect_drone_results" in names
+      assert "cancel_drones" in names
     end
 
     test "execute dispatches to built-in tool module" do

@@ -7,7 +7,7 @@ config :agent_harness, AgentHarnessWeb.Endpoint,
   render_errors: [formats: [html: AgentHarnessWeb.ErrorHTML], layout: false],
   live_view: [signing_salt: "agent_harness_lv"],
   secret_key_base: String.duplicate("a", 64),
-  server: true,
+  server: config_env() != :test,
   pubsub_server: AgentHarness.PubSub
 
 config :phoenix, :json_library, Jason

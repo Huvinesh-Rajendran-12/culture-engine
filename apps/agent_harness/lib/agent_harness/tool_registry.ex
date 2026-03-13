@@ -10,11 +10,38 @@ defmodule AgentHarness.ToolRegistry do
   use GenServer
 
   alias AgentHarness.{Tool, ScriptRunner}
-  alias AgentHarness.Tools.{ReadFile, ListFiles, EditFile, RunCommand, SearchFiles, CreateTool, SpawnAgent, ListAgents}
+
+  alias AgentHarness.Tools.{
+    CancelDrones,
+    CollectDroneResults,
+    CreateTool,
+    EditFile,
+    ListAgents,
+    ListDrones,
+    ListFiles,
+    ReadFile,
+    RunCommand,
+    SearchFiles,
+    SpawnAgent,
+    WriteFile
+  }
 
   @table :tool_registry
   @max_dynamic_tools 10
-  @builtin_modules [ReadFile, ListFiles, EditFile, RunCommand, SearchFiles, CreateTool, SpawnAgent, ListAgents]
+  @builtin_modules [
+    ReadFile,
+    ListFiles,
+    WriteFile,
+    EditFile,
+    RunCommand,
+    SearchFiles,
+    CreateTool,
+    SpawnAgent,
+    ListAgents,
+    ListDrones,
+    CollectDroneResults,
+    CancelDrones
+  ]
 
   # --- Public API ---
 
