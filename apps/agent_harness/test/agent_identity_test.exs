@@ -57,9 +57,10 @@ defmodule AgentHarness.AgentIdentityTest do
     Agent.chat_async(pid, "hello")
     identity = Agent.get_identity(pid)
 
-    # With max_turns: 0, we should get an error event in 3-tuple format
-    assert_receive {:agent_event, agent_id, {:error, _}}, 5000
+    # With max_turns: 0, continuation protocol kicks in — we get a partial text, not an error
+    assert_receive {:agent_event, agent_id, {:text, text}}, 5000
     assert agent_id == identity.id
+    assert text =~ "[partial"
 
     DynamicSupervisor.terminate_child(AgentHarness.AgentSupervisor, pid)
   end
@@ -69,9 +70,10 @@ defmodule AgentHarness.AgentIdentityTest do
     identity = Agent.get_identity(pid)
     Phoenix.PubSub.subscribe(AgentHarness.PubSub, "agent:#{identity.id}")
 
-    assert {:error, "Max turns (0) reached"} = Agent.chat(pid, "hello")
+    assert {:ok, text} = Agent.chat(pid, "hello")
+    assert text =~ "[partial"
 
-    assert_receive {:agent_event, agent_id, {:error, "Max turns (0) reached"}}, 5000
+    assert_receive {:agent_event, agent_id, {:text, _}}, 5000
     assert agent_id == identity.id
     assert_receive {:agent_event, agent_id, :done}, 5000
     assert agent_id == identity.id

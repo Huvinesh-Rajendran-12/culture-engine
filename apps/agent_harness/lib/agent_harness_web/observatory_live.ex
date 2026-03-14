@@ -39,20 +39,10 @@ defmodule AgentHarnessWeb.ObservatoryLive do
   end
 
   # Lifecycle events from "agents" topic
+  @lifecycle_events [:agent_started, :agent_stopped, :drone_completed, :drone_crashed]
+
   @impl true
-  def handle_info({_agent_id, {:agent_started, _info}}, socket) do
-    {:noreply, assign(socket, agents: load_agents())}
-  end
-
-  def handle_info({_agent_id, {:agent_stopped, _info}}, socket) do
-    {:noreply, assign(socket, agents: load_agents())}
-  end
-
-  def handle_info({_agent_id, {:drone_completed, _info}}, socket) do
-    {:noreply, assign(socket, agents: load_agents())}
-  end
-
-  def handle_info({_agent_id, {:drone_crashed, _info}}, socket) do
+  def handle_info({_agent_id, {event, _info}}, socket) when event in @lifecycle_events do
     {:noreply, assign(socket, agents: load_agents())}
   end
 

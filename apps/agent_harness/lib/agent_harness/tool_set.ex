@@ -59,10 +59,21 @@ defmodule AgentHarness.ToolSet do
   end
 
   @doc "Executes a tool: checks agent's dynamic table first, then falls back to built-in."
-  def execute(table, name, input) do
+  def execute(table, name, input, resources \\ %{}) do
     case :ets.lookup(table, name) do
-      [{^name, %{script_path: script_path}}] -> ScriptRunner.run(script_path, input)
-      [] -> ToolRegistry.execute(name, input)
+      [{^name, %{script_path: script_path}}] ->
+        script_opts =
+          Enum.reduce(resources, [], fn
+            {:tool_timeout, v}, acc -> [{:timeout, v} | acc]
+            {:max_output_bytes, v}, acc -> [{:max_output_bytes, v} | acc]
+            _, acc -> acc
+          end)
+
+        ScriptRunner.run(script_path, input, script_opts)
+
+      [] ->
+        input = apply_resource_defaults(input, resources)
+        ToolRegistry.execute(name, input)
     end
   end
 
@@ -78,5 +89,18 @@ defmodule AgentHarness.ToolSet do
 
   defp dynamic_count(table) do
     :ets.info(table, :size)
+  end
+
+  defp apply_resource_defaults(input, resources) do
+    input
+    |> maybe_put_from_resource("timeout", resources, :tool_timeout, &div(&1, 1000))
+    |> maybe_put_from_resource("max_output_bytes", resources, :max_output_bytes)
+  end
+
+  defp maybe_put_from_resource(input, key, resources, resource_key, transform \\ & &1) do
+    case Map.get(resources, resource_key) do
+      nil -> input
+      value -> Map.put_new(input, key, transform.(value))
+    end
   end
 end

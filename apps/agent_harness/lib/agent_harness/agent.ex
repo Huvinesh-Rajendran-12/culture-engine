@@ -44,7 +44,8 @@ defmodule AgentHarness.Agent do
     tier: :mind,
     depth: 0,
     messages: [],
-    max_turns: 20,
+    max_turns: 50,
+    resources: %{},
     pending_drones: %{},
     completed_drones: []
   ]
@@ -105,6 +106,8 @@ defmodule AgentHarness.Agent do
 
     tool_table = ToolSet.new()
 
+    resources = opts[:resources] || %{}
+
     state = %__MODULE__{
       id: id,
       name: agent_name,
@@ -115,7 +118,8 @@ defmodule AgentHarness.Agent do
       api_module: opts[:api_module] || API,
       model: opts[:model] || "claude-sonnet-4-20250514",
       system: opts[:system],
-      max_turns: opts[:max_turns] || 20,
+      max_turns: opts[:max_turns] || 50,
+      resources: resources,
       tool_table: tool_table
     }
 
@@ -197,9 +201,7 @@ defmodule AgentHarness.Agent do
   # --- The Agent Loop ---
 
   defp run_loop(state, turn, caller) when turn >= state.max_turns do
-    emit(state, caller, {:error, "Max turns (#{state.max_turns}) reached"})
-    emit(state, caller, :done)
-    {{:error, "Max turns (#{state.max_turns}) reached"}, state}
+    wrap_up(state, caller)
   end
 
   defp run_loop(state, turn, caller) do
@@ -227,10 +229,7 @@ defmodule AgentHarness.Agent do
     tool_uses = Enum.filter(content, &(&1["type"] == "tool_use"))
 
     if tool_uses == [] do
-      text =
-        content
-        |> Enum.filter(&(&1["type"] == "text"))
-        |> Enum.map_join("\n", & &1["text"])
+      text = text_from_content(content)
 
       emit(state, caller, {:text, text})
       emit(state, caller, :done)
@@ -272,6 +271,64 @@ defmodule AgentHarness.Agent do
       run_loop(state, turn + 1, caller)
     end
   end
+
+  # --- Continuation Protocol ---
+  # When a drone/mind hits its turn limit, instead of returning an error,
+  # we ask for a final summary with no tools available. This preserves
+  # partial results so the Mind can re-dispatch if needed.
+
+  defp wrap_up(state, caller) do
+    wrap_msg = %{
+      "role" => "user",
+      "content" =>
+        "You have reached your turn limit (#{state.max_turns} turns). " <>
+          "Do NOT use any tools. Summarize all findings, progress, and any " <>
+          "remaining work in a single text response."
+    }
+
+    wrap_messages = state.messages ++ [wrap_msg]
+
+    text =
+      case state.api_module.chat(wrap_messages, [],
+             api_key: state.api_key,
+             model: state.model,
+             system: state.system
+           ) do
+        {:ok, response} ->
+          text_from_content(Map.get(response, "content", []))
+
+        {:error, _reason} ->
+          extract_last_assistant_text(state) || "No results captured."
+      end
+
+    summary = "[partial — turn limit reached]\n\n" <> text
+    emit(state, caller, {:text, summary})
+    emit(state, caller, :done)
+    {{:ok, summary}, state}
+  end
+
+  defp extract_last_assistant_text(state) do
+    state.messages
+    |> Enum.reverse()
+    |> Enum.find_value(fn
+      %{"role" => "assistant", "content" => content} when is_list(content) ->
+        case text_from_content(content) do
+          "" -> nil
+          text -> text
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp text_from_content(content) do
+    content
+    |> Enum.filter(&(&1["type"] == "text"))
+    |> Enum.map_join("\n", & &1["text"])
+  end
+
+  # --- Tool Execution ---
 
   defp execute_tool(state, "list_drones", input) do
     {output, new_state} = execute_list_drones(state, input)
@@ -315,7 +372,7 @@ defmodule AgentHarness.Agent do
   end
 
   defp execute_tool(state, name, input) do
-    {status, output} = ToolSet.execute(state.tool_table, name, input)
+    {status, output} = ToolSet.execute(state.tool_table, name, input, state.resources)
     {status, output, state}
   end
 
@@ -323,8 +380,14 @@ defmodule AgentHarness.Agent do
     task = input["task"] || ""
     drone_name = input["name"]
     system = AgentHarness.Prompts.default(:drone)
-    max_turns = input["max_turns"] || 5
+    max_turns = input["max_turns"] || 15
     async = input["async"] == true
+
+    # Build resource budget: Mind can override per-drone (seconds → ms for timeout)
+    drone_resources =
+      %{}
+      |> maybe_put_resource(:tool_timeout, seconds_to_ms(input["tool_timeout"]))
+      |> maybe_put_resource(:max_output_bytes, input["max_output_bytes"])
 
     if task == "" do
       {:error, "spawn_agent requires a 'task' field"}
@@ -336,6 +399,7 @@ defmodule AgentHarness.Agent do
              agent_name: drone_name,
              system: system,
              max_turns: max_turns,
+             resources: drone_resources,
              api_key: state.api_key,
              api_module: state.api_module,
              model: state.model
@@ -651,6 +715,20 @@ defmodule AgentHarness.Agent do
     msg = %{"role" => "user", "content" => tool_results}
     %{state | messages: state.messages ++ [msg]}
   end
+
+  # --- Resource Helpers ---
+
+  defp maybe_put_resource(resources, _key, nil), do: resources
+
+  defp maybe_put_resource(resources, key, value) when is_integer(value) and value > 0 do
+    Map.put(resources, key, value)
+  end
+
+  defp maybe_put_resource(resources, _key, _value), do: resources
+
+  defp seconds_to_ms(nil), do: nil
+  defp seconds_to_ms(s) when is_integer(s) and s > 0, do: s * 1000
+  defp seconds_to_ms(_), do: nil
 
   defp short_id do
     :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
