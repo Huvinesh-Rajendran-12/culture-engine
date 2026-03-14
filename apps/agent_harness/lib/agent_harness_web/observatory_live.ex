@@ -57,39 +57,9 @@ defmodule AgentHarnessWeb.ObservatoryLive do
 
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  defp agent_card_style(agent, depth, selected_id) do
-    selected = selected_id == agent.id
-
-    border_color = if selected, do: "#58a6ff", else: "#21262d"
-
-    left_border_color =
-      cond do
-        depth == 0 and selected -> "#58a6ff"
-        depth == 0 -> "#21262d"
-        depth == 1 -> "#8b5cf6"
-        true -> "#6b46a8"
-      end
-
-    [
-      "padding: 10px 12px",
-      "margin-bottom: 6px",
-      "border-radius: 6px",
-      "cursor: pointer",
-      "margin-left: #{depth * 24}px",
-      "border: 1px solid #{border_color}",
-      "background: #{if selected, do: "#161b22", else: "transparent"}",
-      "border-left: 3px solid #{left_border_color}"
-    ]
-    |> Enum.join("; ")
-  end
-
   defp icon_for_depth(0), do: "◈"
   defp icon_for_depth(1), do: "◆"
   defp icon_for_depth(_), do: "◇"
-
-  defp icon_color(0), do: "#58a6ff"
-  defp icon_color(1), do: "#d2a8ff"
-  defp icon_color(_), do: "#a78bfa"
 
   defp load_agents do
     raw = AgentHarness.Agent.list_agents()
@@ -119,51 +89,74 @@ defmodule AgentHarnessWeb.ObservatoryLive do
     end)
   end
 
+  defp selected_agent_name(agents, selected_id) do
+    case Enum.find(agents, fn {a, _d} -> a.id == selected_id end) do
+      {agent, _depth} -> agent.name
+      nil -> selected_id
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
-    <div id="observatory" style="display: flex; height: 100vh; font-family: 'SF Mono', monospace; background: #0d1117; color: #c9d1d9;">
-      <div style="width: 320px; border-right: 1px solid #21262d; padding: 16px; overflow-y: auto;">
-        <h2 style="color: #58a6ff; font-size: 16px; margin-bottom: 16px;">Observatory</h2>
+    <nav class="nav">
+      <a href="/" class="nav-brand">Culture Engine</a>
+      <a href="/" class="nav-link">REPL</a>
+      <a href="/observatory" class="nav-link active">Observatory</a>
+      <div class="nav-spacer"></div>
+      <div class="nav-status">
+        <span style="color: var(--text-muted); font-size: 12px;">
+          {length(@agents)} agent{if length(@agents) != 1, do: "s"}
+        </span>
+      </div>
+    </nav>
+
+    <div class="obs-layout">
+      <div class="obs-sidebar">
+        <div class="obs-title">Agents</div>
 
         <%= if @agents == [] do %>
-          <p style="color: #8b949e; font-size: 13px;">No agents running.</p>
+          <p style="color: var(--text-muted); font-size: 13px; padding: 8px 0;">
+            No agents running.
+          </p>
         <% else %>
           <%= for {agent, depth} <- @agents do %>
             <div
               phx-click="select_agent"
               phx-value-id={agent.id}
-              style={agent_card_style(agent, depth, @selected_id)}
+              class={"obs-agent #{if @selected_id == agent.id, do: "selected"}"}
+              style={"margin-left: #{depth * 20}px"}
             >
-              <div style="font-size: 13px; font-weight: 600; color: #c9d1d9; display: flex; align-items: center; gap: 6px;">
-                <span style={"color: #{icon_color(depth)}; font-size: 10px;"}>{icon_for_depth(depth)}</span>
+              <div class="obs-agent-name">
+                <span style={"color: #{if depth == 0, do: "var(--accent-blue)", else: "var(--accent-purple)"}; font-size: 11px;"}>
+                  {icon_for_depth(depth)}
+                </span>
                 {agent.name}
+                <span class={"obs-tier #{agent.tier}"}>{agent.tier}</span>
               </div>
-              <div style="font-size: 11px; color: #8b949e; margin-top: 2px;">
-                <span class={"tier-badge #{agent.tier}"}>{agent.tier}</span>
-                <span style="margin-left: 8px;">{agent.id}</span>
-              </div>
+              <div class="obs-agent-meta">{agent.id}</div>
             </div>
           <% end %>
         <% end %>
       </div>
 
-      <div style="flex: 1; padding: 16px; overflow-y: auto;">
+      <div class="obs-main">
         <%= if @selected_id do %>
-          <h3 style="color: #58a6ff; font-size: 14px; margin-bottom: 12px;">
-            Events for {@selected_id}
-          </h3>
-          <div id="obs-events" phx-hook="ScrollBottom" style="max-height: calc(100vh - 80px); overflow-y: auto;">
+          <div class="obs-title" style="display: flex; align-items: center; gap: 10px;">
+            <span>{selected_agent_name(@agents, @selected_id)}</span>
+            <span style="color: var(--text-muted); font-weight: 400; font-size: 11px; font-family: monospace;">{@selected_id}</span>
+          </div>
+          <div id="obs-events" phx-hook="ScrollBottom" style="max-height: calc(100vh - 110px); overflow-y: auto;">
             <%= for {evt, i} <- @events |> Enum.reverse() |> Enum.with_index() do %>
-              <div id={"evt-#{i}"} class={"message #{evt.type}"} style="margin-bottom: 8px; padding: 6px 10px; border-radius: 4px; font-size: 13px; white-space: pre-wrap;">
+              <div id={"evt-#{i}"} class={"obs-event #{evt.type}"}>
                 {evt.content}
               </div>
             <% end %>
           </div>
         <% else %>
-          <p style="color: #8b949e; font-size: 14px; margin-top: 40px; text-align: center;">
+          <div class="obs-empty">
             Select an agent to observe its event stream.
-          </p>
+          </div>
         <% end %>
       </div>
     </div>
