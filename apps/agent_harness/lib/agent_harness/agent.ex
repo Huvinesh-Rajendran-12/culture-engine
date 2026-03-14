@@ -47,8 +47,11 @@ defmodule AgentHarness.Agent do
     max_turns: 50,
     resources: %{},
     pending_drones: %{},
-    completed_drones: []
+    completed_drones: [],
+    event_log: []
   ]
+
+  @max_event_log 500
 
   # --- Public API ---
 
@@ -81,6 +84,10 @@ defmodule AgentHarness.Agent do
 
   def reset(pid) do
     GenServer.call(pid, :reset)
+  end
+
+  def get_events(pid) do
+    GenServer.call(pid, :get_events)
   end
 
   @doc "Lists all running agents as `[{id, pid, %{name, tier, parent}}]`."
@@ -154,6 +161,10 @@ defmodule AgentHarness.Agent do
     {:reply, :ok, state}
   end
 
+  def handle_call(:get_events, _from, state) do
+    {:reply, state.event_log, state}
+  end
+
   @impl true
   def handle_cast({:chat_async, caller, user_message}, state) do
     state = %{state | caller: caller}
@@ -218,8 +229,8 @@ defmodule AgentHarness.Agent do
         handle_response(state, response, turn, caller)
 
       {:error, reason} ->
-        emit(state, caller, {:error, reason})
-        emit(state, caller, :done)
+        state = emit(state, caller, {:error, reason})
+        state = emit(state, caller, :done)
         {{:error, reason}, state}
     end
   end
@@ -231,8 +242,8 @@ defmodule AgentHarness.Agent do
     if tool_uses == [] do
       text = text_from_content(content)
 
-      emit(state, caller, {:text, text})
-      emit(state, caller, :done)
+      state = emit(state, caller, {:text, text})
+      state = emit(state, caller, :done)
       {{:ok, text}, state}
     else
       {tool_results, state} =
@@ -243,19 +254,20 @@ defmodule AgentHarness.Agent do
           acc_state = drain_drone_events(acc_state)
 
           Logger.info("[tool_use] #{name}: #{inspect(input)}")
-          emit(acc_state, caller, {:tool_use, name, input})
+          acc_state = emit(acc_state, caller, {:tool_use, name, input})
 
           {status, output, acc_state} = execute_tool(acc_state, name, input)
 
-          case status do
-            :ok ->
-              Logger.info("[tool_result] #{name}: #{String.slice(output, 0..200)}")
-              emit(acc_state, caller, {:tool_result, name, output})
+          acc_state =
+            case status do
+              :ok ->
+                Logger.info("[tool_result] #{name}: #{String.slice(output, 0..200)}")
+                emit(acc_state, caller, {:tool_result, name, output})
 
-            :error ->
-              Logger.warning("[tool_error] #{name}: #{output}")
-              emit(acc_state, caller, {:tool_result, name, "[error] #{output}"})
-          end
+              :error ->
+                Logger.warning("[tool_error] #{name}: #{output}")
+                emit(acc_state, caller, {:tool_result, name, "[error] #{output}"})
+            end
 
           result = %{
             "type" => "tool_result",
@@ -302,8 +314,8 @@ defmodule AgentHarness.Agent do
       end
 
     summary = "[partial — turn limit reached]\n\n" <> text
-    emit(state, caller, {:text, summary})
-    emit(state, caller, :done)
+    state = emit(state, caller, {:text, summary})
+    state = emit(state, caller, :done)
     {{:ok, summary}, state}
   end
 
@@ -692,6 +704,9 @@ defmodule AgentHarness.Agent do
       "agent:#{state.id}",
       {:agent_event, state.id, event}
     )
+
+    log = [event | state.event_log] |> Enum.take(@max_event_log)
+    %{state | event_log: log}
   end
 
   defp broadcast_lifecycle(state, event) do

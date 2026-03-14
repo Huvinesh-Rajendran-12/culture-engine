@@ -43,7 +43,9 @@ defmodule AgentHarnessWeb.ObservatoryLive do
         nil -> id
       end
 
-    {:noreply, assign(socket, selected_id: id, selected_name: name, events: [])}
+    history = load_event_history(id)
+
+    {:noreply, assign(socket, selected_id: id, selected_name: name, events: history)}
   end
 
   # Lifecycle events from "agents" topic
@@ -63,6 +65,16 @@ defmodule AgentHarnessWeb.ObservatoryLive do
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp load_event_history(agent_id) do
+    via = {:via, Registry, {AgentHarness.AgentRegistry, agent_id}}
+
+    via
+    |> AgentHarness.Agent.get_events()
+    |> Enum.map(&EventFormatter.format/1)
+  catch
+    :exit, _ -> []
+  end
 
   defp icon_for_depth(0), do: "◈"
   defp icon_for_depth(1), do: "◆"
