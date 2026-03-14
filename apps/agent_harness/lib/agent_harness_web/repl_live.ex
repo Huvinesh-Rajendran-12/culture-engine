@@ -262,7 +262,7 @@ defmodule AgentHarnessWeb.ReplLive do
                   <div class="tool-header" phx-hook="ToolToggle" id={"tool-toggle-#{i}"}>
                     <span class="tool-icon">&#9654;</span>
                     <span class="tool-name">{msg.content.name}</span>
-                    <span style="color: var(--text-muted); font-size: 11px;">click to expand</span>
+                    <span class="tool-expand-hint">click to expand</span>
                   </div>
                   <div class="tool-body">
                     <div class="tool-input">{msg.content.detail}</div>
@@ -287,7 +287,7 @@ defmodule AgentHarnessWeb.ReplLive do
                       <div class="drone-info">
                         <div class="drone-name">
                           {drone.name}
-                          <span class="tier-badge drone" style="margin-left: 8px;">drone</span>
+                          <span class="tier-badge drone">drone</span>
                         </div>
                         <%= if drone.task != "" do %>
                           <div class="drone-task-text">{drone.task}</div>

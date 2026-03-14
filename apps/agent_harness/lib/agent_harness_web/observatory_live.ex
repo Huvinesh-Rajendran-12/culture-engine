@@ -126,7 +126,7 @@ defmodule AgentHarnessWeb.ObservatoryLive do
               style={"margin-left: #{depth * 20}px"}
             >
               <div class="obs-agent-name">
-                <span style={"color: #{if depth == 0, do: "var(--accent-blue)", else: "var(--accent-purple)"}; font-size: 11px;"}>
+                <span class={"obs-agent-icon #{if depth == 0, do: "mind", else: "drone"}"}>
                   {icon_for_depth(depth)}
                 </span>
                 {agent.name}
