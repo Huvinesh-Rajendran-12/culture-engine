@@ -41,6 +41,7 @@ defmodule AgentHarnessWeb.Layouts do
             --text-secondary: #7a8ba0;
             --text-muted: #4d5f73;
             --accent-blue: #5b9bd5;
+            --accent-blue-hover: #4e8bbf;
             --accent-green: #6bc46d;
             --accent-purple: #b48ead;
             --accent-red: #d36050;
@@ -472,7 +473,7 @@ defmodule AgentHarnessWeb.Layouts do
             white-space: nowrap;
           }
 
-          .send-btn:hover { background: #4e8bbf; }
+          .send-btn:hover { background: var(--accent-blue-hover); }
           .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
           /* --- Loading indicator --- */
@@ -609,6 +610,14 @@ defmodule AgentHarnessWeb.Layouts do
 
           .tier-badge.mind { background: rgba(91, 155, 213, 0.12); color: var(--accent-blue); }
           .tier-badge.drone { background: rgba(180, 142, 173, 0.12); color: var(--accent-purple); }
+
+          .obs-agent-icon { font-size: 11px; }
+          .obs-agent-icon.mind { color: var(--accent-blue); }
+          .obs-agent-icon.drone { color: var(--accent-purple); }
+
+          .tool-expand-hint { color: var(--text-muted); font-size: 11px; }
+
+          .drone-name .tier-badge { margin-left: 8px; }
         </style>
       </head>
       <body>
