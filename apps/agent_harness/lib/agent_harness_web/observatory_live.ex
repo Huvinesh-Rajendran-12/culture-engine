@@ -9,6 +9,8 @@ defmodule AgentHarnessWeb.ObservatoryLive do
 
   alias AgentHarnessWeb.EventFormatter
 
+  @max_events 500
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -20,22 +22,28 @@ defmodule AgentHarnessWeb.ObservatoryLive do
     {:ok,
      assign(socket,
        agents: agents,
+       agent_count: length(agents),
        selected_id: nil,
+       selected_name: nil,
        events: []
      )}
   end
 
   @impl true
   def handle_event("select_agent", %{"id" => id}, socket) do
-    # Unsubscribe from previous agent's topic
     if socket.assigns.selected_id do
       Phoenix.PubSub.unsubscribe(AgentHarness.PubSub, "agent:#{socket.assigns.selected_id}")
     end
 
-    # Subscribe to new agent's topic
     Phoenix.PubSub.subscribe(AgentHarness.PubSub, "agent:#{id}")
 
-    {:noreply, assign(socket, selected_id: id, events: [])}
+    name =
+      case Enum.find(socket.assigns.agents, fn {a, _d} -> a.id == id end) do
+        {agent, _depth} -> agent.name
+        nil -> id
+      end
+
+    {:noreply, assign(socket, selected_id: id, selected_name: name, events: [])}
   end
 
   # Lifecycle events from "agents" topic
@@ -43,12 +51,11 @@ defmodule AgentHarnessWeb.ObservatoryLive do
 
   @impl true
   def handle_info({_agent_id, {event, _info}}, socket) when event in @lifecycle_events do
-    {:noreply, assign(socket, agents: load_agents())}
+    agents = load_agents()
+    {:noreply, assign(socket, agents: agents, agent_count: length(agents))}
   end
 
-  @max_events 500
-
-  # Agent events from "agent:<id>" topic
+  # Agent events from "agent:<id>" topic — prepend newest first
   def handle_info({:agent_event, _agent_id, event}, socket) do
     entry = EventFormatter.format(event)
     events = [entry | socket.assigns.events] |> Enum.take(@max_events)
@@ -75,7 +82,6 @@ defmodule AgentHarnessWeb.ObservatoryLive do
         }
       end)
 
-    # Group by parent_id — nil means root (mind)
     children_map = Enum.group_by(agents, & &1.parent_id)
     roots = Map.get(children_map, nil, []) |> Enum.sort_by(& &1.name)
 
@@ -89,16 +95,10 @@ defmodule AgentHarnessWeb.ObservatoryLive do
     end)
   end
 
-  defp selected_agent_name(agents, selected_id) do
-    case Enum.find(agents, fn {a, _d} -> a.id == selected_id end) do
-      {agent, _depth} -> agent.name
-      nil -> selected_id
-    end
-  end
-
   @impl true
   def render(assigns) do
-    assigns = assign(assigns, :agent_count, length(assigns.agents))
+    # Reverse events once for chronological display (stored newest-first)
+    assigns = assign(assigns, :display_events, Enum.reverse(assigns.events))
 
     ~H"""
     <AgentHarnessWeb.Layouts.nav page={:observatory}>
@@ -141,11 +141,11 @@ defmodule AgentHarnessWeb.ObservatoryLive do
       <div class="obs-main">
         <%= if @selected_id do %>
           <div class="obs-title" style="display: flex; align-items: center; gap: 10px;">
-            <span>{selected_agent_name(@agents, @selected_id)}</span>
+            <span>{@selected_name}</span>
             <span style="color: var(--text-muted); font-weight: 400; font-size: 11px; font-family: monospace;">{@selected_id}</span>
           </div>
           <div id="obs-events" phx-hook="ScrollBottom" style="max-height: calc(100vh - 110px); overflow-y: auto;">
-            <%= for {evt, i} <- @events |> Enum.reverse() |> Enum.with_index() do %>
+            <%= for {evt, i} <- Enum.with_index(@display_events) do %>
               <div id={"evt-#{i}"} class={"obs-event #{evt.type}"}>
                 {evt.content}
               </div>
