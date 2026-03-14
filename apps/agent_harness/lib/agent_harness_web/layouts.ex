@@ -1,6 +1,23 @@
 defmodule AgentHarnessWeb.Layouts do
   use Phoenix.Component
 
+  attr :page, :atom, required: true
+  slot :status
+
+  def nav(assigns) do
+    ~H"""
+    <nav class="nav">
+      <a href="/" class="nav-brand">Culture Engine</a>
+      <a href="/" class={"nav-link #{if @page == :repl, do: "active"}"}>REPL</a>
+      <a href="/observatory" class={"nav-link #{if @page == :observatory, do: "active"}"}>Observatory</a>
+      <div class="nav-spacer"></div>
+      <div class="nav-status">
+        {render_slot(@status)}
+      </div>
+    </nav>
+    """
+  end
+
   def root(assigns) do
     ~H"""
     <!DOCTYPE html>
@@ -17,7 +34,7 @@ defmodule AgentHarnessWeb.Layouts do
             --bg-primary: #0a0e14;
             --bg-secondary: #111820;
             --bg-tertiary: #1a2130;
-            --bg-hover: #1e2736;
+
             --border: #1e2a3a;
             --border-active: #2d4a6f;
             --text-primary: #d4dce8;
@@ -27,7 +44,7 @@ defmodule AgentHarnessWeb.Layouts do
             --accent-green: #6bc46d;
             --accent-purple: #b48ead;
             --accent-red: #d36050;
-            --accent-amber: #d4a959;
+
             --accent-cyan: #78c4d4;
           }
 
@@ -540,17 +557,6 @@ defmodule AgentHarnessWeb.Layouts do
             margin-top: 2px;
           }
 
-          .obs-tier {
-            font-size: 10px;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-          }
-
-          .obs-tier.mind { background: rgba(91, 155, 213, 0.12); color: var(--accent-blue); }
-          .obs-tier.drone { background: rgba(180, 142, 173, 0.12); color: var(--accent-purple); }
 
           .obs-main {
             flex: 1;

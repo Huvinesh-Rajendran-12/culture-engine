@@ -98,18 +98,16 @@ defmodule AgentHarnessWeb.ObservatoryLive do
 
   @impl true
   def render(assigns) do
+    assigns = assign(assigns, :agent_count, length(assigns.agents))
+
     ~H"""
-    <nav class="nav">
-      <a href="/" class="nav-brand">Culture Engine</a>
-      <a href="/" class="nav-link">REPL</a>
-      <a href="/observatory" class="nav-link active">Observatory</a>
-      <div class="nav-spacer"></div>
-      <div class="nav-status">
+    <AgentHarnessWeb.Layouts.nav page={:observatory}>
+      <:status>
         <span style="color: var(--text-muted); font-size: 12px;">
-          {length(@agents)} agent{if length(@agents) != 1, do: "s"}
+          {@agent_count} agent{if @agent_count != 1, do: "s"}
         </span>
-      </div>
-    </nav>
+      </:status>
+    </AgentHarnessWeb.Layouts.nav>
 
     <div class="obs-layout">
       <div class="obs-sidebar">
@@ -132,7 +130,7 @@ defmodule AgentHarnessWeb.ObservatoryLive do
                   {icon_for_depth(depth)}
                 </span>
                 {agent.name}
-                <span class={"obs-tier #{agent.tier}"}>{agent.tier}</span>
+                <span class={"tier-badge #{agent.tier}"}>{agent.tier}</span>
               </div>
               <div class="obs-agent-meta">{agent.id}</div>
             </div>
