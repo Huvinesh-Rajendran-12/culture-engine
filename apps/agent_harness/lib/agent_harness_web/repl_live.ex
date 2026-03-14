@@ -56,7 +56,7 @@ defmodule AgentHarnessWeb.ReplLive do
         {:noreply,
          socket
          |> assign(loading: true, input: "")
-         |> append_message(:user, input)}
+         |> prepend_message(:user, input)}
     end
   end
 
@@ -87,7 +87,7 @@ defmodule AgentHarnessWeb.ReplLive do
       {:noreply,
        socket
        |> assign(drones: new_drones, pending_spawn: nil, active_drone_count: active_drone_count(new_drones))
-       |> append_message(:drone_spawn, drone_id)}
+       |> prepend_message(:drone_spawn, drone_id)}
     else
       {:noreply, socket}
     end
@@ -103,7 +103,7 @@ defmodule AgentHarnessWeb.ReplLive do
     evt = %{type: :error, content: "Crashed: #{info.reason}"}
 
     {:noreply,
-     update_drone(socket, drone_id, &%{&1 | status: :error, events: cap_events(&1.events, evt)})}
+     update_drone(socket, drone_id, &%{&1 | status: :error, events: [evt | &1.events] |> Enum.take(@max_drone_events)})}
   end
 
   # Ignore lifecycle events for other agents
@@ -121,7 +121,7 @@ defmodule AgentHarnessWeb.ReplLive do
 
       _ ->
         evt = EventFormatter.format(event)
-        {:noreply, update_drone(socket, drone_id, &%{&1 | events: cap_events(&1.events, evt)})}
+        {:noreply, update_drone(socket, drone_id, &%{&1 | events: [evt | &1.events] |> Enum.take(@max_drone_events)})}
     end
   end
 
@@ -138,19 +138,19 @@ defmodule AgentHarnessWeb.ReplLive do
       {:noreply,
        socket
        |> assign(pending_spawn: nil)
-       |> append_message(:error, "Drone spawn failed: #{inspect(result, limit: 100)}")}
+       |> prepend_message(:error, "Drone spawn failed: #{inspect(result, limit: 100)}")}
     else
       {:noreply, socket}
     end
   end
 
   def handle_info({:agent_event, _agent_id, {:text, text}}, socket) do
-    {:noreply, append_message(socket, :agent, text)}
+    {:noreply, prepend_message(socket, :agent, text)}
   end
 
   def handle_info({:agent_event, _agent_id, {:tool_use, name, input}}, socket) do
     %{content: content} = EventFormatter.format({:tool_use, name, input})
-    {:noreply, append_message(socket, :tool_use, %{name: name, detail: content})}
+    {:noreply, prepend_message(socket, :tool_use, %{name: name, detail: content})}
   end
 
   def handle_info({:agent_event, _agent_id, {:tool_result, name, result}}, socket) do
@@ -162,7 +162,7 @@ defmodule AgentHarnessWeb.ReplLive do
     {:noreply,
      socket
      |> assign(loading: false)
-     |> append_message(:error, to_string(reason))}
+     |> prepend_message(:error, to_string(reason))}
   end
 
   def handle_info({:agent_event, _agent_id, :done}, socket) do
@@ -173,36 +173,33 @@ defmodule AgentHarnessWeb.ReplLive do
     {:noreply,
      socket
      |> assign(loading: false)
-     |> append_message(:system, "Agent process terminated.")}
+     |> prepend_message(:system, "Agent process terminated.")}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  # Attach a tool result to the most recent tool_use message with matching name
-  defp attach_tool_result(socket, name, result_content) do
-    messages =
-      socket.assigns.messages
-      |> Enum.reverse()
-      |> attach_result_to_first(name, result_content)
-      |> Enum.reverse()
+  # Messages are stored newest-first (prepended) for O(1) insertion.
+  # Reversed to chronological order only in render.
+  defp prepend_message(socket, role, content) do
+    assign(socket, messages: [%{role: role, content: content} | socket.assigns.messages])
+  end
 
+  # Attach a tool result to the most recent tool_use with matching name.
+  # Messages are newest-first, so we scan forward to find the first match.
+  defp attach_tool_result(socket, name, result_content) do
+    messages = attach_result_forward(socket.assigns.messages, name, result_content)
     assign(socket, messages: messages)
   end
 
-  defp attach_result_to_first([], _name, _result), do: []
+  defp attach_result_forward([], _name, _result), do: []
 
-  defp attach_result_to_first([%{role: :tool_use, content: %{name: n} = content} = msg | rest], name, result)
+  defp attach_result_forward([%{role: :tool_use, content: %{name: n} = content} = msg | rest], name, result)
        when n == name and not is_map_key(content, :result) do
     [%{msg | content: Map.put(content, :result, result)} | rest]
   end
 
-  defp attach_result_to_first([h | t], name, result) do
-    [h | attach_result_to_first(t, name, result)]
-  end
-
-  defp append_message(socket, role, content) do
-    message = %{role: role, content: content}
-    assign(socket, messages: socket.assigns.messages ++ [message])
+  defp attach_result_forward([h | t], name, result) do
+    [h | attach_result_forward(t, name, result)]
   end
 
   defp update_drone(socket, drone_id, fun) do
@@ -216,10 +213,6 @@ defmodule AgentHarnessWeb.ReplLive do
     end
   end
 
-  defp cap_events(events, new_event) do
-    [new_event | events] |> Enum.take(@max_drone_events)
-  end
-
   defp active_drone_count(drones) do
     Enum.count(drones, fn {_id, d} -> d.status == :running end)
   end
@@ -231,6 +224,9 @@ defmodule AgentHarnessWeb.ReplLive do
 
   @impl true
   def render(assigns) do
+    # Reverse once for chronological display (messages stored newest-first)
+    assigns = assign(assigns, :display_messages, Enum.reverse(assigns.messages))
+
     ~H"""
     <AgentHarnessWeb.Layouts.nav page={:repl}>
       <:status>
@@ -248,7 +244,7 @@ defmodule AgentHarnessWeb.ReplLive do
     <div class="app-shell">
       <div class="conversation" id="messages" phx-hook="ScrollBottom">
         <div class="conversation-inner">
-          <%= for {msg, i} <- Enum.with_index(@messages) do %>
+          <%= for {msg, i} <- Enum.with_index(@display_messages) do %>
             <%= case msg.role do %>
               <% :user -> %>
                 <div class="msg msg-user" id={"msg-#{i}"}>
