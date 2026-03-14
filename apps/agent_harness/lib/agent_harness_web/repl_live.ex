@@ -25,7 +25,8 @@ defmodule AgentHarnessWeb.ReplLive do
        loading: false,
        input: "",
        drones: %{},
-       pending_spawn: nil
+       pending_spawn: nil,
+       active_drone_count: 0
      )}
   end
 
@@ -45,7 +46,8 @@ defmodule AgentHarnessWeb.ReplLive do
            messages: [%{role: :system, content: "Conversation reset."}],
            input: "",
            drones: %{},
-           pending_spawn: nil
+           pending_spawn: nil,
+           active_drone_count: 0
          )}
 
       true ->
@@ -80,9 +82,11 @@ defmodule AgentHarnessWeb.ReplLive do
         collapsed: false
       }
 
+      new_drones = Map.put(socket.assigns.drones, drone_id, drone)
+
       {:noreply,
        socket
-       |> assign(drones: Map.put(socket.assigns.drones, drone_id, drone), pending_spawn: nil)
+       |> assign(drones: new_drones, pending_spawn: nil, active_drone_count: active_drone_count(new_drones))
        |> append_message(:drone_spawn, drone_id)}
     else
       {:noreply, socket}
@@ -203,8 +207,12 @@ defmodule AgentHarnessWeb.ReplLive do
 
   defp update_drone(socket, drone_id, fun) do
     case Map.get(socket.assigns.drones, drone_id) do
-      nil -> socket
-      drone -> assign(socket, drones: Map.put(socket.assigns.drones, drone_id, fun.(drone)))
+      nil ->
+        socket
+
+      drone ->
+        new_drones = Map.put(socket.assigns.drones, drone_id, fun.(drone))
+        assign(socket, drones: new_drones, active_drone_count: active_drone_count(new_drones))
     end
   end
 
@@ -223,15 +231,9 @@ defmodule AgentHarnessWeb.ReplLive do
 
   @impl true
   def render(assigns) do
-    assigns = assign(assigns, :active_drone_count, active_drone_count(assigns.drones))
-
     ~H"""
-    <nav class="nav">
-      <a href="/" class="nav-brand">Culture Engine</a>
-      <a href="/" class="nav-link active">REPL</a>
-      <a href="/observatory" class="nav-link">Observatory</a>
-      <div class="nav-spacer"></div>
-      <div class="nav-status">
+    <AgentHarnessWeb.Layouts.nav page={:repl}>
+      <:status>
         <div class="dot"></div>
         <span class="mono">{@agent_name}</span>
         <span class="tier-badge mind">mind</span>
@@ -240,11 +242,11 @@ defmodule AgentHarnessWeb.ReplLive do
             +{@active_drone_count} drone{if @active_drone_count != 1, do: "s"}
           </span>
         <% end %>
-      </div>
-    </nav>
+      </:status>
+    </AgentHarnessWeb.Layouts.nav>
 
     <div class="app-shell">
-      <div class="conversation" id="messages" phx-hook="ScrollBottom" phx-update="stream">
+      <div class="conversation" id="messages" phx-hook="ScrollBottom">
         <div class="conversation-inner">
           <%= for {msg, i} <- Enum.with_index(@messages) do %>
             <%= case msg.role do %>
