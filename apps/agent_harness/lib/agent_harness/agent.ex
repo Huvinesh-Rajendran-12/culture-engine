@@ -25,7 +25,7 @@ defmodule AgentHarness.Agent do
   end
 
   alias AgentHarness.{API, Names, ToolSet}
-  alias AgentHarness.Tools.{CreateTool, SpawnAgent}
+  alias AgentHarness.Tools.{CreateTool, HotReload, SpawnAgent}
 
   # Maximum nesting depth for drone spawning (also referenced by SpawnAgent tool description)
   @max_depth 3
@@ -688,7 +688,7 @@ defmodule AgentHarness.Agent do
   defp tools_for_agent(tools, %{depth: depth, tier: tier}) do
     blocked =
       if(depth >= @max_depth, do: [SpawnAgent.name()], else: []) ++
-        if tier == :drone, do: [CreateTool.name()], else: []
+        if tier == :drone, do: [CreateTool.name(), HotReload.name()], else: []
 
     case blocked do
       [] -> tools

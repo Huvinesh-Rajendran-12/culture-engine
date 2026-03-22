@@ -230,3 +230,31 @@ Each entry uses a Y-statement summary to capture the "why" concisely.
 - `Process.monitor/1` is called on async drone PIDs; `handle_info(:DOWN)` catches crashes and records them as error results.
 - New `list_drones`, `collect_drone_results`, and `cancel_drones` tools let the model inspect, consume, and stop async drones explicitly.
 - Observatory handles new `:drone_completed` and `:drone_crashed` lifecycle events.
+
+---
+
+## 011 — Hot-reload tool for Mind self-modification
+
+**Date:** 2026-03-22
+**Status:** Accepted
+**Area:** `apps/agent_harness`
+
+> *In the context of* the Mind agent having full filesystem access to edit its own
+> source code but no way to load those changes into the running BEAM VM, *facing*
+> the "restart gap" where edits only take effect after a manual process restart,
+> *we decided* to add a `hot_reload` built-in tool (Mind-only) that uses Elixir's
+> `Code.compile_file/1` and `IEx.Helpers.recompile/0` to compile and load modified
+> `.ex` files into the running VM, *to achieve* true runtime self-modification where
+> the Mind can edit source, reload it, and have new agents (or qualified calls) use
+> the updated code immediately, *accepting* that reloading core modules (Agent,
+> Supervisor, API) while they handle requests can cause instability, and that the
+> BEAM's two-version limit means existing processes stay on old code until they make
+> a fully-qualified function call.
+
+**Consequences:**
+- The Mind can now edit `.ex` files and reload them without restarting the system.
+- `hot_reload` is Mind-only — drones are blocked via the same tier filter as `create_tool`.
+- The tool warns (but does not block) when reloading high-risk modules like Agent, Supervisor, API.
+- Two modes: targeted file reload (`files` param) and full recompile (`recompile_all` flag).
+- Newly spawned agents pick up reloaded code immediately; existing agents use old code until qualified calls.
+- This closes the self-modification gap identified in the capability analysis — the Mind can now extend or restrict its own capabilities at runtime.

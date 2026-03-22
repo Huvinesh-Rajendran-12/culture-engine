@@ -91,7 +91,7 @@ AgentHarness.Supervisor
 | `script_runner.ex` | Executes shebang scripts for dynamic tools (30s timeout, 50KB cap) |
 | `cli.ex` | Interactive terminal REPL |
 
-### Tools (9 built-in)
+### Tools (10 built-in)
 
 | Tool | Available To | Purpose |
 |---|---|---|
@@ -104,6 +104,7 @@ AgentHarness.Supervisor
 | `spawn_agent` | Depth < 3 | Spawn drone for subtask (sync or async) |
 | `check_drones` | Depth < 3 | Check status of async drones |
 | `create_tool` | Mind only | Define new tools at runtime |
+| `hot_reload` | Mind only | Hot-reload modified .ex files into the running BEAM |
 
 ### Multi-Agent System
 
