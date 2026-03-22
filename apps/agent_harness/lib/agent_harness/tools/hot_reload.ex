@@ -12,13 +12,13 @@ defmodule AgentHarness.Tools.HotReload do
   """
   @behaviour AgentHarness.Tool
 
-  @high_risk_modules [
-    "AgentHarness.Agent",
-    "AgentHarness.Supervisor",
-    "AgentHarness.API",
-    "AgentHarness.ToolRegistry",
-    "AgentHarnessWeb.Endpoint"
-  ]
+  @high_risk_modules ~w(
+    AgentHarness.Agent
+    AgentHarness.Supervisor
+    AgentHarness.API
+    AgentHarness.ToolRegistry
+    AgentHarnessWeb.Endpoint
+  )
 
   @impl true
   def name, do: "hot_reload"
@@ -76,84 +76,62 @@ defmodule AgentHarness.Tools.HotReload do
       Enum.map(paths, fn path ->
         path = Path.expand(path)
 
-        cond do
-          not File.exists?(path) ->
-            {path, :error, "File not found: #{path}"}
-
-          not String.ends_with?(path, ".ex") ->
-            {path, :error, "Not an Elixir source file: #{path}"}
-
-          true ->
-            compile_and_load(path)
+        if String.ends_with?(path, ".ex") do
+          compile_and_load(path)
+        else
+          {path, :error, [], "Not an Elixir source file: #{path}"}
         end
       end)
 
-    {successes, failures} = Enum.split_with(results, fn {_, status, _} -> status == :ok end)
+    {successes, failures} = Enum.split_with(results, fn {_, status, _, _} -> status == :ok end)
 
-    warnings = build_warnings(successes)
+    loaded_modules = Enum.flat_map(successes, fn {_, _, modules, _} -> modules end)
 
     output =
-      Enum.map_join(results, "\n", fn {path, status, msg} ->
+      Enum.map_join(results, "\n", fn {path, status, _modules, msg} ->
         short = Path.relative_to_cwd(path)
+
         case status do
           :ok -> "OK  #{short}: #{msg}"
           :error -> "ERR #{short}: #{msg}"
         end
       end)
 
-    summary =
-      "\n---\n#{length(successes)} succeeded, #{length(failures)} failed."
+    summary = "\n---\n#{length(successes)} succeeded, #{length(failures)} failed."
+    warnings = build_warnings(loaded_modules)
 
-    full_output = output <> summary <> warnings
-
-    if failures == [] do
-      {:ok, full_output}
-    else
-      {:ok, full_output}
-    end
+    {:ok, output <> summary <> warnings}
   end
 
   defp compile_and_load(path) do
-    try do
-      modules = Code.compile_file(path)
+    modules = Code.compile_file(path)
 
-      module_names =
-        modules
-        |> Enum.map(fn {mod, _bytecode} -> inspect(mod) end)
-        |> Enum.join(", ")
+    module_names =
+      modules
+      |> Enum.map(fn {mod, _bytecode} -> inspect(mod) end)
+      |> Enum.join(", ")
 
-      {path, :ok, "Loaded modules: #{module_names}"}
-    rescue
-      e ->
-        {path, :error, "Compilation error: #{Exception.message(e)}"}
-    end
+    {path, :ok, Enum.map(modules, &elem(&1, 0)), "Loaded modules: #{module_names}"}
+  rescue
+    e ->
+      {path, :error, [], "Compilation error: #{Exception.format(:error, e)}"}
   end
 
   defp recompile_all do
-    try do
-      case IEx.Helpers.recompile() do
-        :ok ->
-          {:ok, "Full recompile succeeded. All modules reloaded."}
-
-        :noop ->
-          {:ok, "No changes detected. Nothing to recompile."}
-
-        {:error, _} ->
-          {:error, "Full recompile failed. Check source files for errors."}
-      end
-    rescue
-      e ->
-        {:error, "Recompile failed: #{Exception.message(e)}"}
+    case IEx.Helpers.recompile() do
+      :ok -> {:ok, "Full recompile succeeded. All modules reloaded."}
+      :noop -> {:ok, "No changes detected. Nothing to recompile."}
+      {:error, _} -> {:error, "Full recompile failed. Check source files for errors."}
     end
+  rescue
+    e -> {:error, "Recompile failed: #{Exception.message(e)}"}
   end
 
-  defp build_warnings(successes) do
+  defp build_warnings(loaded_modules) do
     risky =
-      successes
-      |> Enum.flat_map(fn {_path, :ok, msg} ->
-        @high_risk_modules
-        |> Enum.filter(&String.contains?(msg, &1))
-      end)
+      loaded_modules
+      |> Enum.map(&inspect/1)
+      |> Enum.filter(&(&1 in @high_risk_modules))
 
     case risky do
       [] ->
@@ -162,7 +140,7 @@ defmodule AgentHarness.Tools.HotReload do
       modules ->
         names = Enum.join(modules, ", ")
 
-        "\n\n⚠ WARNING: Reloaded high-risk modules: #{names}. " <>
+        "\n\nWARNING: Reloaded high-risk modules: #{names}. " <>
           "Running processes still use the old code until they make a fully-qualified " <>
           "function call (e.g., Module.function()). Spawning new agents will use the " <>
           "new code immediately."
