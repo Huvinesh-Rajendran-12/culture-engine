@@ -41,6 +41,7 @@ defmodule AgentHarness.Tools.HotReload do
         "files" => %{
           "type" => "array",
           "items" => %{"type" => "string"},
+          "minItems" => 1,
           "description" =>
             "List of .ex file paths to recompile and hot-load. " <>
               "Each file is compiled individually. Paths should be absolute or " <>
@@ -50,10 +51,14 @@ defmodule AgentHarness.Tools.HotReload do
           "type" => "boolean",
           "description" =>
             "If true, runs a full project recompile (equivalent to `mix compile --force`). " <>
-              "Ignores the 'files' parameter. Use sparingly — this reloads everything."
+              "Ignores the 'files' parameter. Use sparingly — this reloads everything. " <>
+              "Requires Mix to be running (not available in CLI/escript mode)."
         }
       },
-      "required" => []
+      "anyOf" => [
+        %{"required" => ["files"]},
+        %{"required" => ["recompile_all"]}
+      ]
     }
   end
 
@@ -74,12 +79,17 @@ defmodule AgentHarness.Tools.HotReload do
   defp reload_files(paths) do
     results =
       Enum.map(paths, fn path ->
-        path = Path.expand(path)
+        expanded = Path.expand(path)
 
-        if String.ends_with?(path, ".ex") do
-          compile_and_load(path)
-        else
-          {path, :error, [], "Not an Elixir source file: #{path}"}
+        cond do
+          !File.exists?(expanded) ->
+            {expanded, :error, [], "File not found: #{path}"}
+
+          !String.ends_with?(expanded, ".ex") ->
+            {expanded, :error, [], "Not an Elixir source file: #{path}"}
+
+          true ->
+            compile_and_load(expanded)
         end
       end)
 
@@ -99,8 +109,9 @@ defmodule AgentHarness.Tools.HotReload do
 
     summary = "\n---\n#{length(successes)} succeeded, #{length(failures)} failed."
     warnings = build_warnings(loaded_modules)
+    reseed_note = maybe_reseed_tool_registry(loaded_modules)
 
-    {:ok, output <> summary <> warnings}
+    {:ok, output <> summary <> warnings <> reseed_note}
   end
 
   defp compile_and_load(path) do
@@ -122,9 +133,19 @@ defmodule AgentHarness.Tools.HotReload do
       :ok -> {:ok, "Full recompile succeeded. All modules reloaded."}
       :noop -> {:ok, "No changes detected. Nothing to recompile."}
       {:error, _} -> {:error, "Full recompile failed. Check source files for errors."}
+      :error -> {:error, "Full recompile failed — Mix may not be running. In CLI/escript mode, use the 'files' option to reload specific files instead."}
     end
   rescue
     e -> {:error, "Recompile failed: #{Exception.message(e)}"}
+  end
+
+  defp maybe_reseed_tool_registry(loaded_modules) do
+    if AgentHarness.ToolRegistry in loaded_modules do
+      AgentHarness.ToolRegistry.reseed_builtins()
+      "\nNote: ToolRegistry was reloaded — built-in tools reseeded from new module list."
+    else
+      ""
+    end
   end
 
   defp build_warnings(loaded_modules) do

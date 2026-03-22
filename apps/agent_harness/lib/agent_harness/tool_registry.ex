@@ -85,6 +85,11 @@ defmodule AgentHarness.ToolRegistry do
     Enum.map(@builtin_modules, & &1.name())
   end
 
+  @doc "Re-seeds built-in tools into ETS. Call after hot-reloading tool_registry.ex to pick up changes to @builtin_modules."
+  def reseed_builtins do
+    GenServer.call(__MODULE__, :reseed_builtins)
+  end
+
   @doc "Returns count of dynamic (non-built-in) tools."
   def dynamic_tool_count do
     :ets.tab2list(@table)
@@ -105,6 +110,14 @@ defmodule AgentHarness.ToolRegistry do
   end
 
   @impl true
+  def handle_call(:reseed_builtins, _from, state) do
+    for module <- @builtin_modules do
+      :ets.insert(state.table, {module.name(), {:module, module}})
+    end
+
+    {:reply, :ok, state}
+  end
+
   def handle_call({:register, name, description, input_schema, script}, _from, state) do
     cond do
       name in builtin_names() ->
